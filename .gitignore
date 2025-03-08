@@ -1,5 +1,12 @@
 *.png
+<<<<<<< HEAD
 *.root
 *.txt
 *.pdf
 Untitled*
+=======
+*.pdf
+Untitled*
+*exe
+*.txt
+>>>>>>> alex
