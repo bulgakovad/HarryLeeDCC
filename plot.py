@@ -11,8 +11,9 @@ Q2_available = [2.99, 2.75, 2.5, 2.25, 2.0, 1.8, 1.6, 1.4, 1.2, 1.0, 0.9, 0.8, 0
 
 '''
 Well, actually the code is capable to produce cross sections for these Q2 values: 
-[0, 0.001, 0.002, 0.004, 0.006, 0.008, 0.01, 0.0125, 0.015, 0.0175, 0.02, 0.0225, 0.025, 0.0275, 0.03, 0.035, 0.04, 0.06, 0.08, 0.1,
-0.12, 0.14, 0.16, 0.18, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 2.25, 2.5, 2.75, 3.0]
+[ 0.001, 0.002, 0.004, 0.006, 0.008, 0.01, 0.0125, 0.015, 0.0175, 0.02, 0.0225, 0.025, 0.0275, 0.03, 0.035, 0.04,
+0.06, 0.08, 0.1, 0.12, 0.14, 0.16, 0.18, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 2.25,
+2.5, 2.75, 3.0]
 '''
 
 for Q2 in Q2_available:   
@@ -41,7 +42,7 @@ for Q2 in Q2_available:
 
     # Create the plot
     plt.figure()
-    plt.plot(W_values, lp_cross, marker='o', linestyle='-', label="Inclusive: ep -> e X") # delete  marker='o' for smooth line
+    plt.plot(W_values, lp_cross,  linestyle='-', label="Inclusive: ep -> e X") # delete  marker='o' for smooth line
     #plt.plot(W_values, lp_pi_cross, marker='s', linestyle='--', label="Single pion: ep -> e pi N")
     plt.xlabel("W, GeV")
     plt.xticks(np.arange(min(W_values), max(W_values) + 0.1, 0.1)) # Set x-ticks with a step of 0.1
