@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # Q2 values to compare for the model data
-Q2_values = [2.75]
+Q2_values = [2.75,2.99]
 
 # Create a new figure for the combined plot
 plt.figure()
@@ -74,7 +74,8 @@ def plot_exp_data(file_name, label, color):
 
 # --- Add the experimental data ---
 plot_exp_data("exp_data/InclusiveExpValera_Q2=2.774.dat", "Exp. Data: Q$^2$ = 2.774 GeV$^2$", color="red")
-#plot_exp_data("InclusiveExpValera_Q2=3.25.dat", "Exp. Data: Q$^2$ = 3.244 GeV$^2$", color="blue")
+plot_exp_data("exp_data/InclusiveExpValera_Q2=3.244.dat", "Exp. Data: Q$^2$ = 3.244 GeV$^2$", color="blue")
+plot_exp_data("exp_data/InclusiveExpValera_Q2=3.793.dat", "Exp. Data: Q$^2$ = 3.793 GeV$^2$", color="magenta")
 
 # --- Customize the combined plot ---
 plt.xlabel("W, GeV")
