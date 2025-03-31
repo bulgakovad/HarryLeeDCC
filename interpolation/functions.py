@@ -177,3 +177,54 @@ def plot_cross_section_vs_W(Q2, beam_energy, file_path="input_data/wempx.dat", n
     plt.savefig(filename, dpi=300)
     plt.close()
     print(f"Plot saved as {filename}")
+
+def generate_table(file_path, fixed_Q2, beam_energy, output_filename="table.txt"):
+    """
+    Generates a text table with columns: Q2, W, W1, W2, and CrossSection.
+    The table is generated for a fixed Q2 value (the nearest grid Q2 is used)
+    by extracting all rows from the input file that correspond to that grid Q2.
+    For each row, the cross section is computed using the fixed Q2, the grid's W,
+    and the structure functions from the input file.
+    
+    The table is saved as a tab-delimited text file.
+
+    Parameters:
+        file_path (str): Path to the input data file (W, Q2, W1, W2)
+        fixed_Q2 (float): The Q2 value for which the table is generated.
+        beam_energy (float): The beam (lepton) energy in GeV.
+        output_filename (str): The name of the output text file.
+    """
+    # Load the data
+    data = np.loadtxt(file_path)
+    # Columns: W, Q2, W1, W2
+    W = data[:, 0]
+    Q2 = data[:, 1]
+    W1 = data[:, 2]
+    W2 = data[:, 3]
+    
+    # Get unique Q2 values from the grid
+    Q2_unique = np.unique(Q2)
+    # Find the grid Q2 closest to fixed_Q2
+    idx = np.argmin(np.abs(Q2_unique - fixed_Q2))
+    grid_Q2 = Q2_unique[idx]
+    
+    # Define a tolerance to select rows corresponding to the chosen grid Q2
+    tol = 1e-6
+    # Select rows where Q2 is within tolerance of grid_Q2
+    rows = data[np.abs(Q2 - grid_Q2) < tol]
+    
+    # Prepare the table rows: each row will be [Q2, W, W1, W2, CrossSection]
+    output_rows = []
+    for row in rows:
+        W_val = row[0]
+        Q2_val = row[1]  # should be grid_Q2
+        W1_val = row[2]
+        W2_val = row[3]
+        # Compute cross section for these values
+        cs = compute_cross_section(W_val, Q2_val, beam_energy, file_path, verbose=False)
+        output_rows.append([Q2_val, W_val, W1_val, W2_val, cs])
+    
+    # Create header and save the table to a text file with tab delimiter
+    header = "Q2\tW\tW1\tW2\tCrossSection"
+    np.savetxt(output_filename, np.array(output_rows), header=header, fmt="%.6e", delimiter="\t")
+    print(f"Table saved as {output_filename}")

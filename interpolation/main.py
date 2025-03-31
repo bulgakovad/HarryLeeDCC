@@ -1,11 +1,13 @@
-from functions import compute_cross_section, plot_cross_section_vs_W
+from functions import compute_cross_section, plot_cross_section_vs_W, generate_table
 
 def main():
     """
-    Main routine: ask the user whether to calculate a single cross section or plot
-    the cross section versus W, then perform the requested action.
+    Main routine: ask the user whether to calculate a single cross section ("calc"),
+    plot cross sections ("plot"), or generate a table ("table"), then perform the requested action.
     """
-    mode = input("Enter 'calc' to calculate cross section or 'plot' to plot cross section vs W: ").strip().lower()
+    mode = input("Enter 'calc' to calculate cross section, 'plot' to plot, or 'table' to generate a table: ").strip().lower()
+    
+    file_path = "input_data/wempx.dat"
     
     if mode == "calc":
         try:
@@ -17,7 +19,7 @@ def main():
             return
 
         try:
-            xsec = compute_cross_section(W_input, Q2_input, beam_energy, file_path="input_data/wempx.dat", verbose=True)
+            xsec = compute_cross_section(W_input, Q2_input, beam_energy, file_path=file_path, verbose=True)
             print("\n=== Results ===")
             print(f"Beam energy: {beam_energy:.5f} GeV")
             print(f"W: {W_input:.5f} GeV, Q²: {Q2_input:.5f} GeV²")
@@ -27,19 +29,35 @@ def main():
     
     elif mode == "plot":
         try:
-            Q2_input = float(input("Enter Q² (GeV²): "))
+            Q2_input = float(input("Enter fixed Q² (GeV²) for plotting cross section vs W: "))
             beam_energy = float(input("Enter beam (lepton) energy (GeV): "))
         except ValueError:
             print("Invalid input. Please enter numerical values.")
             return
         
         try:
-            plot_cross_section_vs_W(Q2_input, beam_energy, file_path="input_data/wempx.dat")
+            plot_cross_section_vs_W(Q2_input, beam_energy, file_path=file_path, num_points=200)
+        except Exception as e:
+            print(f"Error: {e}")
+    
+    elif mode == "table":
+        try:
+            fixed_Q2 = float(input("Enter fixed Q² (GeV²) for generating the table: "))
+            beam_energy = float(input("Enter beam (lepton) energy (GeV): "))
+            output_filename = input("Enter output filename (default: table.txt): ").strip()
+            if output_filename == "":
+                output_filename = "table.txt"
+        except ValueError:
+            print("Invalid input. Please enter numerical values.")
+            return
+        
+        try:
+            generate_table(file_path, fixed_Q2, beam_energy, output_filename)
         except Exception as e:
             print(f"Error: {e}")
     
     else:
-        print("Invalid option. Please enter 'calc' or 'plot'.")
+        print("Invalid option. Please enter 'calc', 'plot', or 'table'.")
 
 if __name__ == "__main__":
     main()

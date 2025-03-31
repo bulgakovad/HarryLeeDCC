@@ -1,9 +1,9 @@
       Program tst_CJpdf
       implicit real*8 (a-h,o-z)
       integer iset
-      dimension q(4), pdf(-5:5)
+      dimension q(1), pdf(-5:5)
       character*80 outfile
-      data q/1.3, 1.5, 2.3, 3/
+      data q/1.6583123952/
 
       print*,'ISET = '
       read*, iset
@@ -12,7 +12,7 @@
       write(outfile, '(A,I3,A)') 'output/tst_CJpdf_ISET=', iset, '.out'
       open(unit=1, file=outfile, status='unknown')
 
-      do j=1,4
+      do j=1,1
          write(1,2) q(j)**2
          write(1,5)
  5       format(' x times the labelled pdf')
