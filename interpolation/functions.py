@@ -2,6 +2,7 @@ import numpy as np
 import math
 from scipy.interpolate import RectBivariateSpline
 import matplotlib.pyplot as plt
+import os
 
 def interpolate_structure_functions(file_path, target_W, target_Q2):
     """
@@ -171,14 +172,14 @@ def plot_cross_section_vs_W(Q2, beam_energy, file_path="input_data/wempx.dat", n
     plt.grid(True)
     
     # Build a filename that includes Q² and beam energy values
-    filename = f"cross_section_vs_W_Q2={Q2:.3f}_E={beam_energy:.3f}.png"
+    filename = f"plots_cs/cross_section_vs_W_Q2={Q2:.3f}_E={beam_energy:.3f}.png"
     
     # Save the plot as a PNG file
     plt.savefig(filename, dpi=300)
     plt.close()
     print(f"Plot saved as {filename}")
 
-def generate_table(file_path, fixed_Q2, beam_energy, output_filename="table.txt"):
+def generate_table(file_path, fixed_Q2, beam_energy):
     """
     Generates a text table with columns: Q2, W, W1, W2, and CrossSection.
     The table is generated for a fixed Q2 value (the nearest grid Q2 is used)
@@ -226,5 +227,85 @@ def generate_table(file_path, fixed_Q2, beam_energy, output_filename="table.txt"
     
     # Create header and save the table to a text file with tab delimiter
     header = "Q2\tW\tW1\tW2\tCrossSection"
+    output_filename = f"tables/ANL_model_CS_Q2={fixed_Q2}.txt"
     np.savetxt(output_filename, np.array(output_rows), header=header, fmt="%.6e", delimiter="\t")
     print(f"Table saved as {output_filename}")
+    
+def compare_strfun(fixed_Q2, beam_energy, interp_file="input_data/wempx.dat", num_points=200):
+    """
+    Compares the interpolated cross section with measured structure function data.
+
+    The measured data is expected in the folder "strfun_data" with a file
+    named "cs_Q2=<fixed_Q2>.dat" (using the exact fixed_Q2 value as typed by the user).
+    That file should have a header and three columns: W, Quantity, and Uncertainty.
+
+    If fixed_Q2 is near 2.75 (within 0.01), a third dataset is loaded from the 
+    "exp_data" folder with the file "InclusiveExpValera_Q2=2.774.dat". This file is 
+    assumed to have a header and columns: W, eps, sigma, error, sys_error. The total 
+    error is computed as sqrt(error² + sys_error²).
+
+    The function:
+      - Generates a fine grid of W values (from the interp_file) over the available range.
+      - Computes the cross section at each W (using compute_cross_section) for the given fixed Q² and beam energy.
+      - Loads the measured data from the appropriate file.
+      - Plots the interpolated cross section as a smooth blue line (labeled "ANL model"),
+        overlays the measured data as red markers with error bars (labeled "strfun website"),
+        and, if applicable, overlays the experiment data as purple markers (labeled "experiment RGA").
+      - Saves the plot as a PNG file with a filename that includes the fixed Q² and beam energy.
+
+    Parameters:
+      fixed_Q2 (float): Fixed Q² value.
+      beam_energy (float): Beam energy in GeV.
+      interp_file (str): Path to the interpolation file (default "input_data/wempx.dat").
+      num_points (int): Number of W points for interpolation (default 200).
+    """
+    # Load interpolation file to get the available W range.
+    data = np.loadtxt(interp_file)
+    W_all = data[:, 0]
+    W_unique = np.unique(W_all)
+    W_min = W_unique[0]
+    W_max = W_unique[-1]
+    
+    # Generate fine grid of W values.
+    W_vals = np.linspace(W_min, W_max, num_points)
+    cross_sections = []
+    for w in W_vals:
+        cs = compute_cross_section(w, fixed_Q2, beam_energy, file_path=interp_file, verbose=False)
+        cross_sections.append(cs)
+    
+    # Load measured data from "strfun_data" folder.
+    measured_filename = f"strfun_data/cs_Q2={fixed_Q2}.dat"
+    if not os.path.isfile(measured_filename):
+        raise FileNotFoundError(f"Measured data file {measured_filename} not found.")
+    # The file is assumed to be tab-delimited with columns: W, Quantity, Uncertainty.
+    measured_data = np.genfromtxt(measured_filename, names=["W", "Quantity", "Uncertainty"], delimiter="\t", skip_header=1)
+    W_meas = measured_data["W"]
+    quantity_meas = measured_data["Quantity"]
+    uncertainty_meas = measured_data["Uncertainty"]
+    
+    plt.figure(figsize=(8, 6))
+    plt.plot(W_vals, cross_sections, label="ANL model", color="blue", linewidth=2)
+    plt.errorbar(W_meas, quantity_meas, yerr=uncertainty_meas, fmt="o", color="green", capsize=1,markersize=2, label="strfun website")
+    
+    # If fixed_Q2 is near 2.75, load additional experiment dataset.
+    if abs(fixed_Q2 - 2.774) < 0.001:
+        exp_filename = "exp_data/InclusiveExpValera_Q2=2.774.dat"
+        if not os.path.isfile(exp_filename):
+            raise FileNotFoundError(f"Experiment data file {exp_filename} not found.")
+        # File assumed to have a header and columns: W, eps, sigma, error, sys_error.
+        exp_data = np.genfromtxt(exp_filename, names=["W", "eps", "sigma", "error", "sys_error"], delimiter="\t", skip_header=1)
+        exp_W = exp_data["W"]
+        exp_sigma = exp_data["sigma"]*1e-3
+        exp_error = np.sqrt(exp_data["error"]**2 + exp_data["sys_error"]**2)*1e-3
+        plt.errorbar(exp_W, exp_sigma, yerr=exp_error, fmt="o", color="red", capsize=1, markersize=2, label="experiment RGA")
+    
+    plt.xlabel("W (GeV)")
+    plt.ylabel("Cross Section (10⁻³⁰ cm²/GeV³)")
+    plt.title(f"Cross Section Comparison at Q² = {fixed_Q2} GeV², Beam Energy = {beam_energy} GeV")
+    plt.legend()
+    plt.grid(True)
+    
+    filename = f"compare_strfun_Q2={fixed_Q2}_E={beam_energy}.png"
+    plt.savefig(filename, dpi=300)
+    plt.close()
+    print(f"Comparison plot saved as {filename}")

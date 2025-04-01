@@ -1,11 +1,12 @@
-from functions import compute_cross_section, plot_cross_section_vs_W, generate_table
+from functions import compute_cross_section, plot_cross_section_vs_W, generate_table, compare_strfun
 
 def main():
     """
     Main routine: ask the user whether to calculate a single cross section ("calc"),
-    plot cross sections ("plot"), or generate a table ("table"), then perform the requested action.
+    plot cross sections ("plot"), generate a table ("table"), or compare structure
+    function data ("compare_strfun"), then perform the requested action.
     """
-    mode = input("Enter 'calc' to calculate cross section, 'plot' to plot, or 'table' to generate a table: ").strip().lower()
+    mode = input("Enter 'calc'/'plot'/'table'/'compare_strfun'").strip().lower()
     
     file_path = "input_data/wempx.dat"
     
@@ -56,8 +57,21 @@ def main():
         except Exception as e:
             print(f"Error: {e}")
     
+    elif mode == "compare_strfun":
+        try:
+            fixed_Q2 = float(input("Enter fixed Q² (GeV²) for comparison: "))
+            beam_energy = float(input("Enter beam (lepton) energy (GeV): "))
+        except ValueError:
+            print("Invalid input. Please enter numerical values.")
+            return
+        
+        try:
+            compare_strfun(fixed_Q2, beam_energy, interp_file=file_path, num_points=200)
+        except Exception as e:
+            print(f"Error: {e}")
+    
     else:
-        print("Invalid option. Please enter 'calc', 'plot', or 'table'.")
+        print("Invalid option. Please enter 'calc', 'plot', 'table', or 'compare_strfun'.")
 
 if __name__ == "__main__":
     main()
