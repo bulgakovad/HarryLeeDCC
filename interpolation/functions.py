@@ -285,7 +285,7 @@ def compare_strfun(fixed_Q2, beam_energy, interp_file="input_data/wempx.dat", nu
     
     plt.figure(figsize=(8, 6))
     plt.plot(W_vals, cross_sections, label="ANL model", color="blue", linewidth=2)
-    plt.errorbar(W_meas, quantity_meas, yerr=uncertainty_meas, fmt="o", color="green", capsize=1,markersize=2, label="strfun website")
+    plt.errorbar(W_meas, quantity_meas, yerr=uncertainty_meas, fmt="o", color="green", capsize=1,markersize=2, label="strfun website:CLAS and world data")
     
     # If fixed_Q2 is near 2.75, load additional experiment dataset.
     if abs(fixed_Q2 - 2.774) < 0.001:
@@ -305,7 +305,7 @@ def compare_strfun(fixed_Q2, beam_energy, interp_file="input_data/wempx.dat", nu
     plt.legend()
     plt.grid(True)
     
-    filename = f"compare_strfun_Q2={fixed_Q2}_E={beam_energy}.png"
+    filename = f"compare_strfun/compare_strfun_Q2={fixed_Q2}_E={beam_energy}.png"
     plt.savefig(filename, dpi=300)
     plt.close()
     print(f"Comparison plot saved as {filename}")
