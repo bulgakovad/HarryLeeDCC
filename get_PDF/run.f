@@ -6,13 +6,14 @@ c  to run: gfortran -o executable run.f tst_CJpdf.f
       dimension pdf(-5:5)
       character*80 outfile
       integer nQ
-      nQ = 1  
+      nQ = 1 
+      Q2 = 9.699 
 
       print*,'ISET = '
       read*, iset
       call setCJ(iset)
 
-      write(outfile, '(A,I3,A)') 'output/tst_CJpdf_ISET=', iset, '.out'
+      write(outfile, '(A,I3,A)') 'output/tst_CJpdf_ISET=', iset,'.dat'
       open(unit=1, file=outfile, status='unknown')
 
 C     Write header including the Q**2 column as the first column
@@ -21,7 +22,6 @@ C     Write header including the Q**2 column as the first column
      1 10x,'sb',10x,'s',10x,'cb',10x,'c',10x,'bb',10x,'b')
 
       do j = 1, nQ
-         Q2 = 2.774
          Q = sqrt(Q2)
          do l = 1, 19
             x = l * 0.05
