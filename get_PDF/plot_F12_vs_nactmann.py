@@ -55,12 +55,9 @@ def main():
                 # t = 4*x^2*m^2/Q2_target
                 t = 4 * x_val**2 * m**2 / q2_target
                 xi = 2 * x_val / (1 + math.sqrt(1 + t))
-                # Compute derivative dξ/dx = 2/(1+t+sqrt(1+t))
-                dxi_dx = 2.0 / (1 + t + math.sqrt(1+t))
-                # Transform the structure functions:
-                # F(ξ) = F(x)/(dξ/dx)
-                F2_trans = F2 / dxi_dx
-                F1_trans = F1 / dxi_dx
+
+                F2_trans = F2 
+                F1_trans = F1 
 
                 xi_list.append(xi)
                 F2_trans_list.append(F2_trans)

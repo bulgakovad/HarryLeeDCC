@@ -6,7 +6,7 @@ c  to run: gfortran -o executable run.f tst_CJpdf.f
       dimension pdf(-5:5)
       character*80 outfile
       integer nQ
-      nQ = 100
+      nQ = 1  
 
       print*,'ISET = '
       read*, iset
@@ -21,10 +21,10 @@ C     Write header including the Q**2 column as the first column
      1 10x,'sb',10x,'s',10x,'cb',10x,'c',10x,'bb',10x,'b')
 
       do j = 1, nQ
-         Q2 = j * 0.1
+         Q2 = 2.774
          Q = sqrt(Q2)
-         do l = 1, 99
-            x = l * 0.01
+         do l = 1, 19
+            x = l * 0.05
             do k = -5, 5
                pdf(k) = x * CJpdf(k, x, Q)
             enddo
