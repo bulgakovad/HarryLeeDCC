@@ -1,8 +1,9 @@
 import numpy as np
 import math
-from scipy.interpolate import RectBivariateSpline
+from scipy.interpolate import RectBivariateSpline, interp1d
 import matplotlib.pyplot as plt
 import os
+import pandas as pd
 
 def interpolate_structure_functions(file_path, target_W, target_Q2):
     """
@@ -134,6 +135,7 @@ def compute_cross_section(W, Q2, beam_energy, file_path="input_data/wempx.dat", 
 
 def plot_cross_section_vs_W(Q2, beam_energy, file_path="input_data/wempx.dat", num_points=200):
     """
+    Just ANL model. No comparison.
     Plots the differential cross section dσ/dW/dQ² as a function of W for a fixed Q² and beam energy.
     The plot is saved as a PNG file with a filename that includes the Q² and beam energy values.
 
@@ -172,7 +174,7 @@ def plot_cross_section_vs_W(Q2, beam_energy, file_path="input_data/wempx.dat", n
     plt.grid(True)
     
     # Build a filename that includes Q² and beam energy values
-    filename = f"plots_cs/cross_section_vs_W_Q2={Q2:.3f}_E={beam_energy:.3f}.png"
+    filename = f"plots_ANL_model_only/cross_section_vs_W_Q2={Q2:.3f}_E={beam_energy:.3f}.png"
     
     # Save the plot as a PNG file
     plt.savefig(filename, dpi=300)
@@ -181,7 +183,7 @@ def plot_cross_section_vs_W(Q2, beam_energy, file_path="input_data/wempx.dat", n
 
 def generate_table(file_path, fixed_Q2, beam_energy):
     """
-    Generates a text table with columns: Q2, W, W1, W2, and CrossSection.
+    Generates a text table with columns: Q2, W, W1, W2, and CrossSection - from ANL model.
     The table is generated for a fixed Q2 value (the nearest grid Q2 is used)
     by extracting all rows from the input file that correspond to that grid Q2.
     For each row, the cross section is computed using the fixed Q2, the grid's W,
@@ -193,7 +195,6 @@ def generate_table(file_path, fixed_Q2, beam_energy):
         file_path (str): Path to the input data file (W, Q2, W1, W2)
         fixed_Q2 (float): The Q2 value for which the table is generated.
         beam_energy (float): The beam (lepton) energy in GeV.
-        output_filename (str): The name of the output text file.
     """
     # Load the data
     data = np.loadtxt(file_path)
@@ -227,17 +228,18 @@ def generate_table(file_path, fixed_Q2, beam_energy):
     
     # Create header and save the table to a text file with tab delimiter
     header = "Q2\tW\tW1\tW2\tCrossSection"
-    output_filename = f"tables/ANL_model_CS_Q2={fixed_Q2}.txt"
+    output_filename = f"tables_ANL_model/ANL_model_CS_Q2={fixed_Q2}.txt"
     np.savetxt(output_filename, np.array(output_rows), header=header, fmt="%.6e", delimiter="\t")
     print(f"Table saved as {output_filename}")
     
 def compare_strfun(fixed_Q2, beam_energy, interp_file="input_data/wempx.dat", num_points=200):
     """
-    Compares the interpolated cross section with measured structure function data.
+    Compares the interpolated cross section from ANL model with 
+    experimentally measured and interpolated cross sections from strfun website https://clas.sinp.msu.ru/strfun/.
 
     The measured data is expected in the folder "strfun_data" with a file
     named "cs_Q2=<fixed_Q2>.dat" (using the exact fixed_Q2 value as typed by the user).
-    That file should have a header and three columns: W, Quantity, and Uncertainty.
+    That file should have a header and three columns: W, Quantity, and Uncertainty. Taken from the website.
 
     If fixed_Q2 is near 2.75 (within 0.01), a third dataset is loaded from the 
     "exp_data" folder with the file "InclusiveExpValera_Q2=2.774.dat". This file is 
@@ -285,7 +287,7 @@ def compare_strfun(fixed_Q2, beam_energy, interp_file="input_data/wempx.dat", nu
     
     plt.figure(figsize=(8, 6))
     plt.plot(W_vals, cross_sections, label="ANL model", color="blue", linewidth=2)
-    plt.errorbar(W_meas, quantity_meas, yerr=uncertainty_meas, fmt="o", color="green", capsize=1,markersize=2, label="strfun website:CLAS and world data")
+    plt.errorbar(W_meas, quantity_meas, yerr=uncertainty_meas, fmt="o", color="green", capsize=1, markersize=2, label="strfun website:CLAS and world data")
     
     # If fixed_Q2 is near 2.75, load additional experiment dataset.
     if abs(fixed_Q2 - 2.774) < 0.001:
@@ -309,3 +311,197 @@ def compare_strfun(fixed_Q2, beam_energy, interp_file="input_data/wempx.dat", nu
     plt.savefig(filename, dpi=300)
     plt.close()
     print(f"Comparison plot saved as {filename}")
+
+# --- New functions for PDF-based comparison ---
+
+def get_pdf_interpolators(fixed_Q2):
+    """
+    Loads the PDF table for a given fixed Q², computes F1 and F2 as functions of x,
+    then computes W and returns cubic interpolators for F1(W) and F2(W), along with the minimum W.
+    
+    Parameters:
+        fixed_Q2 (float): The fixed Q² value used in the PDF table filename.
+    
+    Returns:
+        tuple: (F1_W_interp, F2_W_interp, W_min) where:
+            - F1_W_interp is a cubic interpolator for F1 as a function of W.
+            - F2_W_interp is a cubic interpolator for F2 as a function of W.
+            - W_min is the minimum W value from the PDF table.
+    """
+    Mp = 0.9385  # Proton mass in GeV
+    filename = f'PDF_tables/tst_CJpdf_ISET=400_Q2={fixed_Q2}.dat'
+    pdf_table = pd.read_csv(filename, delim_whitespace=True)
+    
+    # Assuming columns: x, u, ub, d, db
+    x = pdf_table['x'].values
+    nu = pdf_table['u'].values
+    nub = pdf_table['ub'].values
+    nd = pdf_table['d'].values
+    ndb = pdf_table['db'].values
+    
+    # Compute structure functions F2 and F1
+    F2_x = (4/9)*(nu + nub) + (1/9)*(nd + ndb)
+    F1_x = F2_x / (2 * x)
+    
+    # Compute W for each x (W² = Mp² + Q²*(1-x)/x)
+    W2 = Mp**2 + fixed_Q2 * (1 - x) / x
+    W = np.sqrt(W2)
+    
+    # Create cubic interpolators (sorting by W)
+    sorted_indices = np.argsort(W)
+    W_sorted = W[sorted_indices]
+    F1_sorted = F1_x[sorted_indices]
+    F2_sorted = F2_x[sorted_indices]
+    
+    F1_W_interp = interp1d(W_sorted, F1_sorted, kind='cubic', bounds_error=False, fill_value="extrapolate")
+    F2_W_interp = interp1d(W_sorted, F2_sorted, kind='cubic', bounds_error=False, fill_value="extrapolate")
+    
+    return F1_W_interp, F2_W_interp, np.min(W_sorted)
+
+def compute_cross_section_pdf(W, Q2, beam_energy, F1_W_interp, F2_W_interp):
+    """
+    Computes the differential cross section using PDF-based structure functions interpolated from a PDF table.
+
+    Parameters:
+        W           : Invariant mass (GeV)
+        Q2          : Photon virtuality (GeV²) (should match fixed_Q2 used in the PDF table)
+        beam_energy : Beam (lepton) energy (GeV)
+        F1_W_interp : Interpolator for F1(W)
+        F2_W_interp : Interpolator for F2(W)
+
+    Returns:
+        dcrs        : Differential cross section in units of 10^(-30) cm²/GeV³
+    """
+    alpha = 1 / 137.04
+    Mp = 0.9385
+    pi = math.pi
+    wtot = math.sqrt(2 * Mp * beam_energy + Mp**2)
+    if W > wtot:
+        raise ValueError("W is greater than the available lab energy (w_tot).")
+    
+    elepi = beam_energy
+    omeg = (W**2 + Q2 - Mp**2) / (2 * Mp)
+    elepf = elepi - omeg
+    if elepf <= 0:
+        raise ValueError("Final lepton energy is non-positive.")
+    
+    plepi = elepi
+    plepf = elepf
+    clep = (-Q2 + 2 * elepi * elepf) / (2 * plepi * plepf)
+    
+    fac3 = pi * W / (Mp * elepi * elepf)
+    fcrs3 = 4 * (alpha / Q2)**2 * (0.197327**2) * 1e4 * (elepf**2)
+    
+    ss2 = (1 - clep) / 2
+    cc2 = (1 + clep) / 2
+    
+    F1 = F1_W_interp(W)
+    F2 = F2_W_interp(W)
+    W1 = F1 / Mp
+    W2 = F2 / omeg
+    
+    xxx = 2 * ss2 * W1 + cc2 * W2
+    dcrs = fcrs3 * fac3 * xxx
+    return dcrs
+
+def compare_exp_model_pdf(fixed_Q2, beam_energy, num_points=200):
+    """
+    Compares the PDF-based theoretical cross section with the ANL model cross section and experimental data.
+    Also produces a separate plot of the PDF-based structure functions W1 and W2 as a function of W.
+
+    This function:
+      - Loads the PDF table and creates interpolators for F1 and F2.
+      - Generates a fine grid of W values (from the minimum W in the PDF table to 2.5 GeV).
+      - Computes the cross section for each W using:
+          (a) the PDF-based approach (theory from PDF) and
+          (b) the standard ANL model (using the compute_cross_section function with the input file).
+      - Loads experimental data from exp_data/InclusiveExpValera_Q2=<fixed_Q2>.dat.
+      - Plots both theory curves and the experimental data with error bars.
+      - Computes the structure functions W1 and W2 (where W1 = F1/Mp and W2 = F2/ω) at each W and plots them together.
+      - Saves both plots as PNG files.
+
+    Parameters:
+        fixed_Q2   (float): The fixed Q² value (also used to select the appropriate PDF table).
+        beam_energy(float): Beam (lepton) energy in GeV.
+        num_points (int)  : Number of W points for the plots.
+    """
+    # Load PDF table and create interpolators
+    F1_W_interp, F2_W_interp, W_min = get_pdf_interpolators(fixed_Q2)
+    W_max = 2.5
+    W_vals = np.linspace(W_min, W_max, num_points)
+    pdf_cross_sections = []
+    anl_cross_sections = []
+    
+    for W_val in W_vals:
+        try:
+            cs_pdf = compute_cross_section_pdf(W_val, fixed_Q2, beam_energy, F1_W_interp, F2_W_interp)
+        except Exception:
+            cs_pdf = np.nan
+        pdf_cross_sections.append(cs_pdf)
+        
+        try:
+            cs_anl = compute_cross_section(W_val, fixed_Q2, beam_energy, file_path="input_data/wempx.dat", verbose=False)
+        except Exception:
+            cs_anl = np.nan
+        anl_cross_sections.append(cs_anl)
+    
+    # Load experimental data
+    exp_data_file = f"exp_data/InclusiveExpValera_Q2={fixed_Q2}.dat"
+    if not os.path.isfile(exp_data_file):
+        raise FileNotFoundError(f"Experimental data file {exp_data_file} not found.")
+    exp_data = pd.read_csv(exp_data_file, sep='\s+')
+    W_exp = exp_data['W'].values
+    sigma_exp = exp_data['sigma'].values * 1e-3
+    total_err = np.sqrt(exp_data['error']**2 + exp_data['sys_error']**2) * 1e-3
+    
+    # Plot cross section comparison
+    plt.figure(figsize=(8, 6))
+    plt.plot(W_vals, pdf_cross_sections, label="Theory (from PDF)", color='green', linestyle='--')
+    plt.plot(W_vals, anl_cross_sections, label="ANL Model", color='blue')
+    plt.errorbar(W_exp, sigma_exp, yerr=total_err, fmt='o', color='red', label="Experimental data")
+    plt.xlabel("W (GeV)")
+    plt.ylabel("dσ/dW/dQ² (10⁻³⁰ cm²/GeV³)")
+    plt.title(f"Differential Cross Section Comparison at Q² = {fixed_Q2} GeV², Beam Energy = {beam_energy} GeV")
+    plt.grid(True)
+    plt.legend()
+    plt.xlim(W_min, W_max)
+    plt.tight_layout()
+    filename1 = f"cross_section_vs_W_comparison_Q2={fixed_Q2}_Ebeam={beam_energy}.png"
+    plt.savefig(filename1, dpi=300)
+    plt.close()
+    print(f"Cross section comparison plot saved as {filename1}")
+    
+    # --- New: Plot the PDF-based structure functions W1 and W2 vs W ---
+    Mp = 0.9385  # Proton mass in GeV
+    W1_vals = []
+    W2_vals = []
+    for W_val in W_vals:
+        try:
+            F1_val = F1_W_interp(W_val)
+            F2_val = F2_W_interp(W_val)
+            W1_val = F1_val / Mp
+            # Energy transfer: ω = (W² + Q² - Mp²) / (2*Mp)
+            omeg_val = (W_val**2 + fixed_Q2 - Mp**2) / (2 * Mp)
+            # Guard against non-positive ω
+            if omeg_val <= 0:
+                W2_val = np.nan
+            else:
+                W2_val = F2_val / omeg_val
+        except Exception:
+            W1_val, W2_val = np.nan, np.nan
+        W1_vals.append(W1_val)
+        W2_vals.append(W2_val)
+    
+    plt.figure(figsize=(8, 6))
+    plt.plot(W_vals, W1_vals, label="W1 = F1 / Mp", color="magenta", linestyle='-')
+    plt.plot(W_vals, W2_vals, label="W2 = F2 / ω", color="orange", linestyle='--')
+    plt.xlabel("W (GeV)")
+    plt.ylabel("Structure Function Value")
+    plt.title(f"PDF-based Structure Functions at Q² = {fixed_Q2} GeV²")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    filename2 = f"structure_functions_vs_W_Q2={fixed_Q2}_Ebeam={beam_energy}.png"
+    plt.savefig(filename2, dpi=300)
+    plt.close()
+    print(f"Structure functions plot saved as {filename2}")

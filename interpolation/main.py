@@ -1,12 +1,13 @@
-from functions import compute_cross_section, plot_cross_section_vs_W, generate_table, compare_strfun
+from functions import compute_cross_section, plot_cross_section_vs_W, generate_table, compare_strfun, compare_exp_model_pdf
 
 def main():
     """
     Main routine: ask the user whether to calculate a single cross section ("calc"),
-    plot cross sections ("plot"), generate a table ("table"), or compare structure
-    function data ("compare_strfun"), then perform the requested action.
+    plot cross sections ("plot"), generate a table ("table"), compare structure
+    function data ("compare_strfun"), or compare experimental data with the PDF-based model ("compare_exp_model_pdf"),
+    then perform the requested action.
     """
-    mode = input("Enter 'calc'/'plot'/'table'/'compare_strfun'").strip().lower()
+    mode = input("Enter 'calc'/'plot'/'table'/'compare_strfun'/'compare_exp_model_pdf': ").strip().lower()
     
     file_path = "input_data/wempx.dat"
     
@@ -53,7 +54,7 @@ def main():
             return
         
         try:
-            generate_table(file_path, fixed_Q2, beam_energy, output_filename)
+            generate_table(file_path, fixed_Q2, beam_energy)
         except Exception as e:
             print(f"Error: {e}")
     
@@ -70,8 +71,21 @@ def main():
         except Exception as e:
             print(f"Error: {e}")
     
+    elif mode == "compare_exp_model_pdf":
+        try:
+            Q2_input = float(input("Enter fixed Q² (GeV²) for PDF-based comparison: "))
+            beam_energy = float(input("Enter beam (lepton) energy (GeV): "))
+        except ValueError:
+            print("Invalid input. Please enter numerical values.")
+            return
+        
+        try:
+            compare_exp_model_pdf(Q2_input, beam_energy, num_points=200)
+        except Exception as e:
+            print(f"Error: {e}")
+    
     else:
-        print("Invalid option. Please enter 'calc', 'plot', 'table', or 'compare_strfun'.")
+        print("Invalid option. Please enter 'calc', 'plot', 'table', 'compare_strfun', or 'compare_exp_model_pdf'.")
 
 if __name__ == "__main__":
     main()
