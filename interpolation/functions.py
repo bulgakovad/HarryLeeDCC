@@ -407,7 +407,8 @@ def compute_cross_section_pdf(W, Q2, beam_energy, F1_W_interp, F2_W_interp):
 def compare_exp_model_pdf(fixed_Q2, beam_energy, num_points=200):
     """
     Compares the PDF-based theoretical cross section with the ANL model cross section and experimental data.
-    Also produces a separate plot of the PDF-based structure functions W1 and W2 as a function of W.
+    Also produces a separate plot of the PDF-based structure functions W1 and W2 as a function of W, and
+    saves a text table with columns: Q2, W, W1, W2.
 
     This function:
       - Loads the PDF table and creates interpolators for F1 and F2.
@@ -419,11 +420,12 @@ def compare_exp_model_pdf(fixed_Q2, beam_energy, num_points=200):
       - Plots both theory curves and the experimental data with error bars.
       - Computes the structure functions W1 and W2 (where W1 = F1/Mp and W2 = F2/ω) at each W and plots them together.
       - Saves both plots as PNG files.
+      - Also generates a text table with columns: Q2, W, W1, W2.
 
     Parameters:
         fixed_Q2   (float): The fixed Q² value (also used to select the appropriate PDF table).
         beam_energy(float): Beam (lepton) energy in GeV.
-        num_points (int)  : Number of W points for the plots.
+        num_points (int)  : Number of W points for the plots and table.
     """
     # Load PDF table and create interpolators
     F1_W_interp, F2_W_interp, W_min = get_pdf_interpolators(fixed_Q2)
@@ -466,12 +468,12 @@ def compare_exp_model_pdf(fixed_Q2, beam_energy, num_points=200):
     plt.legend()
     plt.xlim(W_min, W_max)
     plt.tight_layout()
-    filename1 = f"cross_section_vs_W_comparison_Q2={fixed_Q2}_Ebeam={beam_energy}.png"
+    filename1 = f"xsec_exp_model_pdf_comparison/cross_section_vs_W_comparison_Q2={fixed_Q2}_Ebeam={beam_energy}.png"
     plt.savefig(filename1, dpi=300)
     plt.close()
     print(f"Cross section comparison plot saved as {filename1}")
     
-    # --- New: Plot the PDF-based structure functions W1 and W2 vs W ---
+    # --- Plot the PDF-based structure functions W1 and W2 vs W ---
     Mp = 0.9385  # Proton mass in GeV
     W1_vals = []
     W2_vals = []
@@ -482,7 +484,6 @@ def compare_exp_model_pdf(fixed_Q2, beam_energy, num_points=200):
             W1_val = F1_val / Mp
             # Energy transfer: ω = (W² + Q² - Mp²) / (2*Mp)
             omeg_val = (W_val**2 + fixed_Q2 - Mp**2) / (2 * Mp)
-            # Guard against non-positive ω
             if omeg_val <= 0:
                 W2_val = np.nan
             else:
@@ -501,7 +502,21 @@ def compare_exp_model_pdf(fixed_Q2, beam_energy, num_points=200):
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
-    filename2 = f"structure_functions_vs_W_Q2={fixed_Q2}_Ebeam={beam_energy}.png"
+    filename2 = f"struc_func_W1_W2_from_PDF/structure_functions_vs_W_Q2={fixed_Q2}_Ebeam={beam_energy}.png"
     plt.savefig(filename2, dpi=300)
     plt.close()
     print(f"Structure functions plot saved as {filename2}")
+    
+    # --- Generate a text table for structure functions ---
+    # Prepare table columns: Q2, W, W1, W2
+    # Q2 is constant (fixed_Q2) for all rows
+    table_data = np.column_stack((
+        np.full(W_vals.shape, fixed_Q2),
+        W_vals,
+        np.array(W1_vals).flatten(),
+        np.array(W2_vals).flatten()
+    ))
+    table_filename = f"struc_func_W1_W2_from_PDF_tables/structure_functions_table_Q2={fixed_Q2}_Ebeam={beam_energy}.dat"
+    header_str = "Q2\tW\tW1\tW2"
+    np.savetxt(table_filename, table_data, fmt="%.6e", delimiter="\t", header=header_str)
+    print(f"Structure functions table saved as {table_filename}")
