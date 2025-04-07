@@ -406,117 +406,482 @@ def compute_cross_section_pdf(W, Q2, beam_energy, F1_W_interp, F2_W_interp):
 
 def compare_exp_model_pdf(fixed_Q2, beam_energy, num_points=200):
     """
-    Compares the PDF-based theoretical cross section with the ANL model cross section and experimental data.
-    Also produces a separate plot of the PDF-based structure functions W1 and W2 as a function of W, and
-    saves a text table with columns: Q2, W, W1, W2.
-
-    This function:
-      - Loads the PDF table and creates interpolators for F1 and F2.
-      - Generates a fine grid of W values (from the minimum W in the PDF table to 2.5 GeV).
-      - Computes the cross section for each W using:
-          (a) the PDF-based approach (theory from PDF) and
-          (b) the standard ANL model (using the compute_cross_section function with the input file).
-      - Loads experimental data from exp_data/InclusiveExpValera_Q2=<fixed_Q2>.dat.
-      - Plots both theory curves and the experimental data with error bars.
-      - Computes the structure functions W1 and W2 (where W1 = F1/Mp and W2 = F2/ω) at each W and plots them together.
-      - Saves both plots as PNG files.
-      - Also generates a text table with columns: Q2, W, W1, W2.
-
-    Parameters:
-        fixed_Q2   (float): The fixed Q² value (also used to select the appropriate PDF table).
-        beam_energy(float): Beam (lepton) energy in GeV.
-        num_points (int)  : Number of W points for the plots and table.
+    Compares the PDF-based theoretical cross section with the ANL model cross section and experimental data,
+    as a function of W. Also produces a 2×2 canvas with:
+      Top row: W1 = F1/Mp and W2 = F2/ω vs W.
+      Bottom row: F1 and F2 (directly from the PDF interpolators) vs W.
+    Generates a text table with columns: Q2, W, W1, W2.
     """
-    # Load PDF table and create interpolators
+    import math
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    Mp = 0.9385
+    # Get PDF interpolators (F1(W), F2(W)) and the minimum W from the PDF table
     F1_W_interp, F2_W_interp, W_min = get_pdf_interpolators(fixed_Q2)
-    W_max = 2.5
-    W_vals = np.linspace(W_min, W_max, num_points)
+    
+    # Use available W range from the input file (here we use a grid from the PDF’s minimum to a chosen maximum)
+    # For example, we set the upper limit to 2.5 GeV (as in your original code)
+    W_vals = np.linspace(W_min, 2.5, num_points)
+    
     pdf_cross_sections = []
     anl_cross_sections = []
-    
-    for W_val in W_vals:
-        try:
-            cs_pdf = compute_cross_section_pdf(W_val, fixed_Q2, beam_energy, F1_W_interp, F2_W_interp)
-        except Exception:
-            cs_pdf = np.nan
-        pdf_cross_sections.append(cs_pdf)
-        
-        try:
-            cs_anl = compute_cross_section(W_val, fixed_Q2, beam_energy, file_path="input_data/wempx.dat", verbose=False)
-        except Exception:
-            cs_anl = np.nan
-        anl_cross_sections.append(cs_anl)
-    
-    # Load experimental data
-    exp_data_file = f"exp_data/InclusiveExpValera_Q2={fixed_Q2}.dat"
-    if not os.path.isfile(exp_data_file):
-        raise FileNotFoundError(f"Experimental data file {exp_data_file} not found.")
-    exp_data = pd.read_csv(exp_data_file, sep='\s+')
-    W_exp = exp_data['W'].values
-    sigma_exp = exp_data['sigma'].values * 1e-3
-    total_err = np.sqrt(exp_data['error']**2 + exp_data['sys_error']**2) * 1e-3
-    
-    # Plot cross section comparison
-    plt.figure(figsize=(8, 6))
-    plt.plot(W_vals, pdf_cross_sections, label="Theory (from PDF)", color='green', linestyle='--')
-    plt.plot(W_vals, anl_cross_sections, label="ANL Model", color='blue')
-    plt.errorbar(W_exp, sigma_exp, yerr=total_err, fmt='o', color='red', label="Experimental data")
-    plt.xlabel("W (GeV)")
-    plt.ylabel("dσ/dW/dQ² (10⁻³⁰ cm²/GeV³)")
-    plt.title(f"Differential Cross Section Comparison at Q² = {fixed_Q2} GeV², Beam Energy = {beam_energy} GeV")
-    plt.grid(True)
-    plt.legend()
-    plt.xlim(W_min, W_max)
-    plt.tight_layout()
-    filename1 = f"xsec_exp_model_pdf_comparison/cross_section_vs_W_comparison_Q2={fixed_Q2}_Ebeam={beam_energy}.png"
-    plt.savefig(filename1, dpi=300)
-    plt.close()
-    print(f"Cross section comparison plot saved as {filename1}")
-    
-    # --- Plot the PDF-based structure functions W1 and W2 vs W ---
-    Mp = 0.9385  # Proton mass in GeV
+    F1_vals = []
+    F2_vals = []
     W1_vals = []
     W2_vals = []
-    for W_val in W_vals:
+    
+    for W in W_vals:
         try:
-            F1_val = F1_W_interp(W_val)
-            F2_val = F2_W_interp(W_val)
-            W1_val = F1_val / Mp
-            # Energy transfer: ω = (W² + Q² - Mp²) / (2*Mp)
-            omeg_val = (W_val**2 + fixed_Q2 - Mp**2) / (2 * Mp)
-            if omeg_val <= 0:
-                W2_val = np.nan
-            else:
-                W2_val = F2_val / omeg_val
+            cs_pdf = compute_cross_section_pdf(W, fixed_Q2, beam_energy, F1_W_interp, F2_W_interp)
         except Exception:
-            W1_val, W2_val = np.nan, np.nan
+            cs_pdf = np.nan
+        try:
+            cs_anl = compute_cross_section(W, fixed_Q2, beam_energy, file_path="input_data/wempx.dat", verbose=False)
+        except Exception:
+            cs_anl = np.nan
+        pdf_cross_sections.append(cs_pdf)
+        anl_cross_sections.append(cs_anl)
+        
+        # Get F1 and F2 from the PDF interpolators at this W
+        try:
+            F1_val = F1_W_interp(W)
+            F2_val = F2_W_interp(W)
+        except Exception:
+            F1_val, F2_val = np.nan, np.nan
+        F1_vals.append(F1_val)
+        F2_vals.append(F2_val)
+        # Derived structure functions:
+        W1_val = F1_val / Mp if not np.isnan(F1_val) else np.nan
+        omega = (W**2 + fixed_Q2 - Mp**2) / (2.0 * Mp)
+        W2_val = F2_val / omega if (omega > 0 and not np.isnan(F2_val)) else np.nan
         W1_vals.append(W1_val)
         W2_vals.append(W2_val)
     
-    plt.figure(figsize=(8, 6))
-    plt.plot(W_vals, W1_vals, label="W1 = F1 / Mp", color="magenta", linestyle='-')
-    plt.plot(W_vals, W2_vals, label="W2 = F2 / ω", color="orange", linestyle='--')
+    # Plot cross section vs W
+    plt.figure(figsize=(8,6))
+    plt.plot(W_vals, pdf_cross_sections, label="Theory (from PDF)", color='green', linestyle='--')
+    plt.plot(W_vals, anl_cross_sections, label="ANL Model", color='blue')
+    # Load experimental data
+    exp_file = f"exp_data/InclusiveExpValera_Q2={fixed_Q2}.dat"
+    if not __import__("os").path.isfile(exp_file):
+        raise FileNotFoundError(f"Experimental data file {exp_file} not found.")
+    exp_data = np.genfromtxt(exp_file, names=["W", "eps", "sigma", "error", "sys_error"], delimiter="\t", skip_header=1)
+    plt.errorbar(exp_data["W"], exp_data["sigma"]*1e-3, 
+                 yerr=np.sqrt(exp_data["error"]**2+exp_data["sys_error"]**2)*1e-3,
+                 fmt="o", color="red", label="Experimental data")
     plt.xlabel("W (GeV)")
-    plt.ylabel("Structure Function Value")
-    plt.title(f"PDF-based Structure Functions at Q² = {fixed_Q2} GeV²")
+    plt.ylabel("dσ/dW/dQ² (10⁻³⁰ cm²/GeV³)")
+    plt.title(f"Cross Section vs W at Q²={fixed_Q2} GeV², E={beam_energy} GeV")
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
-    filename2 = f"struc_func_W1_W2_from_PDF/structure_functions_vs_W_Q2={fixed_Q2}_Ebeam={beam_energy}.png"
-    plt.savefig(filename2, dpi=300)
+    filename_cs = f"cross_section_vs_W_comparison_Q2={fixed_Q2}_Ebeam={beam_energy}.png"
+    plt.savefig(filename_cs, dpi=300)
     plt.close()
-    print(f"Structure functions plot saved as {filename2}")
+    print(f"Cross section vs W plot saved as {filename_cs}")
     
-    # --- Generate a text table for structure functions ---
-    # Prepare table columns: Q2, W, W1, W2
-    # Q2 is constant (fixed_Q2) for all rows
-    table_data = np.column_stack((
-        np.full(W_vals.shape, fixed_Q2),
-        W_vals,
-        np.array(W1_vals).flatten(),
-        np.array(W2_vals).flatten()
-    ))
-    table_filename = f"struc_func_W1_W2_from_PDF_tables/structure_functions_table_Q2={fixed_Q2}_Ebeam={beam_energy}.dat"
+    # Now produce a 2x2 canvas for structure functions versus W
+    fig, axs = plt.subplots(2, 2, figsize=(12, 10))
+    # Top left: W1 vs W
+    axs[0,0].plot(W_vals, W1_vals, label="W1 = F1/Mp", color="magenta")
+    axs[0,0].set_xlabel("W (GeV)")
+    axs[0,0].set_ylabel("W1")
+    axs[0,0].set_title("W1 vs W")
+    axs[0,0].grid(True)
+    axs[0,0].legend()
+    # Top right: W2 vs W
+    axs[0,1].plot(W_vals, W2_vals, label="W2 = F2/ω", color="orange")
+    axs[0,1].set_xlabel("W (GeV)")
+    axs[0,1].set_ylabel("W2")
+    axs[0,1].set_title("W2 vs W")
+    axs[0,1].grid(True)
+    axs[0,1].legend()
+    # Bottom left: F1 vs W
+    axs[1,0].plot(W_vals, F1_vals, label="F1", color="blue")
+    axs[1,0].set_xlabel("W (GeV)")
+    axs[1,0].set_ylabel("F1")
+    axs[1,0].set_title("F1 vs W")
+    axs[1,0].grid(True)
+    axs[1,0].legend()
+    # Bottom right: F2 vs W
+    axs[1,1].plot(W_vals, F2_vals, label="F2", color="green")
+    axs[1,1].set_xlabel("W (GeV)")
+    axs[1,1].set_ylabel("F2")
+    axs[1,1].set_title("F2 vs W")
+    axs[1,1].grid(True)
+    axs[1,1].legend()
+    
+    fig.suptitle(f"PDF-based Structure Functions vs W at Q²={fixed_Q2} GeV²", fontsize=16)
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    filename_sf = f"structure_functions_4plots_vs_W_Q2={fixed_Q2}_Ebeam={beam_energy}.png"
+    plt.savefig(filename_sf, dpi=300)
+    plt.close()
+    print(f"4-panel structure functions vs W plot saved as {filename_sf}")
+    
+    # Write out text table (columns: Q2, W, W1, W2)
+    table_data = np.column_stack((np.full(W_vals.shape, fixed_Q2), W_vals, W1_vals, W2_vals))
+    table_filename = f"structure_functions_table_vs_W_Q2={fixed_Q2}_Ebeam={beam_energy}.txt"
     header_str = "Q2\tW\tW1\tW2"
     np.savetxt(table_filename, table_data, fmt="%.6e", delimiter="\t", header=header_str)
-    print(f"Structure functions table saved as {table_filename}")
+    print(f"Structure functions table vs W saved as {table_filename}")
+
+
+def compare_exp_model_pdf_Bjorken_x(fixed_Q2, beam_energy, num_points=200):
+    """
+    Compares the PDF-based theoretical cross section with the ANL model cross section and experimental data,
+    as functions of Bjorken x. The original dσ/(dQ²dW) is converted to dσ/(dQ²dx) using the Jacobian
+      |dW/dx| = Q²/(2Wx²).
+    Also produces a 2×2 canvas with:
+      Top row: W1 = F1/Mp and W2 = F2/ω vs x.
+      Bottom row: F1 and F2 vs x.
+    Generates a text table with columns: Q2, x, W, W1, W2.
+    """
+    import math
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    Mp = 0.9385
+    # Load PDF table to get the x-range
+    pdf_filename = f"PDF_tables/tst_CJpdf_ISET=400_Q2={fixed_Q2}.dat"
+    if not __import__("os").path.isfile(pdf_filename):
+        raise FileNotFoundError(f"PDF file not found: {pdf_filename}")
+    pdf_table = __import__("pandas").read_csv(pdf_filename, delim_whitespace=True)
+    x_vals = np.linspace(np.min(pdf_table['x'].values), np.max(pdf_table['x'].values), num_points)
+    
+    # Get PDF interpolators (they use W as independent variable)
+    F1_W_interp, F2_W_interp, _ = get_pdf_interpolators(fixed_Q2)
+    
+    x_theory = []
+    W_vals = []
+    pdf_cross_sections_dx = []
+    anl_cross_sections_dx = []
+    F1_vals = []
+    F2_vals = []
+    W1_vals = []
+    W2_vals = []
+    
+    def dWdx_abs(W, x, Q2):
+        return Q2/(2.0 * W * x**2)
+    
+    for x in x_vals:
+        try:
+            # Convert Bjorken x to W using: W^2 = Mp^2 + Q^2*(1-x)/x.
+            W_val = math.sqrt(Mp**2 + fixed_Q2*(1 - x)/x)
+        except Exception:
+            W_val = np.nan
+        W_vals.append(W_val)
+        x_theory.append(x)
+        try:
+            cs_pdf_dw = compute_cross_section_pdf(W_val, fixed_Q2, beam_energy, F1_W_interp, F2_W_interp)
+        except Exception:
+            cs_pdf_dw = np.nan
+        try:
+            cs_anl_dw = compute_cross_section(W_val, fixed_Q2, beam_energy, file_path="input_data/wempx.dat", verbose=False)
+        except Exception:
+            cs_anl_dw = np.nan
+        # Convert to dσ/(dQ²dx)
+        try:
+            jacobian = dWdx_abs(W_val, x, fixed_Q2)
+        except Exception:
+            jacobian = np.nan
+        pdf_cross_sections_dx.append(cs_pdf_dw * jacobian if not np.isnan(jacobian) else np.nan)
+        anl_cross_sections_dx.append(cs_anl_dw * jacobian if not np.isnan(jacobian) else np.nan)
+        
+        # Structure functions:
+        try:
+            F1_val = F1_W_interp(W_val)
+            F2_val = F2_W_interp(W_val)
+        except Exception:
+            F1_val, F2_val = np.nan, np.nan
+        F1_vals.append(F1_val)
+        F2_vals.append(F2_val)
+        W1_val = F1_val / Mp if not np.isnan(F1_val) else np.nan
+        omega = (W_val**2 + fixed_Q2 - Mp**2)/(2.0*Mp)
+        W2_val = F2_val/omega if (omega>0 and not np.isnan(F2_val)) else np.nan
+        W1_vals.append(W1_val)
+        W2_vals.append(W2_val)
+    
+    # Experimental data conversion: from W to x.
+    exp_file = f"exp_data/InclusiveExpValera_Q2={fixed_Q2}.dat"
+    if not __import__("os").path.isfile(exp_file):
+        raise FileNotFoundError(f"Experimental data file {exp_file} not found.")
+    exp_data = __import__("pandas").read_csv(exp_file, sep=r'\s+')
+    W_exp = exp_data["W"].values
+    sigma_exp_dw = exp_data["sigma"].values * 1e-3
+    err_exp_dw = np.sqrt(exp_data["error"]**2+exp_data["sys_error"]**2)*1e-3
+    x_exp = []
+    sigma_exp_dx = []
+    err_exp_dx = []
+    for i, W_e in enumerate(W_exp):
+        denom = (W_e**2 - Mp**2 + fixed_Q2)
+        if denom != 0:
+            x_e = fixed_Q2/denom
+        else:
+            x_e = np.nan
+        x_exp.append(x_e)
+        try:
+            jac = dWdx_abs(W_e, x_e, fixed_Q2)
+        except Exception:
+            jac = np.nan
+        sigma_exp_dx.append(sigma_exp_dw[i]*jac if not np.isnan(jac) else np.nan)
+        err_exp_dx.append(err_exp_dw[i]*jac if not np.isnan(jac) else np.nan)
+    
+    plt.figure(figsize=(8,6))
+    plt.plot(x_theory, pdf_cross_sections_dx, label="Theory (from PDF)", color="green", linestyle="--")
+    plt.plot(x_theory, anl_cross_sections_dx, label="ANL Model", color="blue")
+    plt.errorbar(x_exp, sigma_exp_dx, yerr=err_exp_dx, fmt="o", color="red", label="Experimental data")
+    plt.xlabel("Bjorken x")
+    plt.ylabel("dσ/dQ²dx (10⁻³⁰ cm²)")
+    plt.title(f"dσ/dQ²dx vs x at Q²={fixed_Q2} GeV², E={beam_energy} GeV")
+    plt.legend()
+    plt.grid(True)
+    # Adjust left boundary so the plot starts at the data's minimum x if larger.
+    x_plot_min = max(np.nanmin(x_exp), np.nanmin(x_theory))*0.95
+    plt.xlim(x_plot_min, np.nanmax(x_theory))
+    plt.tight_layout()
+    filename_cs = f"cross_section_vs_x_comparison_Q2={fixed_Q2}_Ebeam={beam_energy}.png"
+    plt.savefig(filename_cs, dpi=300)
+    plt.close()
+    print(f"Cross section vs x plot saved as {filename_cs}")
+    
+    # 2x2 panel for structure functions vs x
+    fig, axs = plt.subplots(2,2, figsize=(12,10))
+    axs[0,0].plot(x_theory, W1_vals, label="W1 = F1/Mp", color="magenta")
+    axs[0,0].set_xlabel("x (Bjorken x)")
+    axs[0,0].set_ylabel("W1")
+    axs[0,0].set_title("W1 vs x")
+    axs[0,0].grid(True)
+    axs[0,0].legend()
+    
+    axs[0,1].plot(x_theory, W2_vals, label="W2 = F2/ω", color="orange")
+    axs[0,1].set_xlabel("x (Bjorken x)")
+    axs[0,1].set_ylabel("W2")
+    axs[0,1].set_title("W2 vs x")
+    axs[0,1].grid(True)
+    axs[0,1].legend()
+    
+    axs[1,0].plot(x_theory, F1_vals, label="F1", color="blue")
+    axs[1,0].set_xlabel("x (Bjorken x)")
+    axs[1,0].set_ylabel("F1")
+    axs[1,0].set_title("F1 vs x")
+    axs[1,0].grid(True)
+    axs[1,0].legend()
+    
+    axs[1,1].plot(x_theory, F2_vals, label="F2", color="green")
+    axs[1,1].set_xlabel("x (Bjorken x)")
+    axs[1,1].set_ylabel("F2")
+    axs[1,1].set_title("F2 vs x")
+    axs[1,1].grid(True)
+    axs[1,1].legend()
+    
+    fig.suptitle(f"PDF-based Structure Functions vs x at Q²={fixed_Q2} GeV²", fontsize=16)
+    plt.tight_layout(rect=[0,0,1,0.95])
+    filename_sf = f"structure_functions_4plots_vs_x_Q2={fixed_Q2}_Ebeam={beam_energy}.png"
+    plt.savefig(filename_sf, dpi=300)
+    plt.close()
+    print(f"4-panel structure functions vs x plot saved as {filename_sf}")
+    
+    table_data = np.column_stack((np.full(len(x_theory), fixed_Q2), np.array(x_theory),
+                                   np.array(W_vals), np.array(W1_vals), np.array(W2_vals)))
+    table_filename = f"structure_functions_table_vs_x_Q2={fixed_Q2}_Ebeam={beam_energy}.txt"
+    header_str = "Q2\tx\tW\tW1\tW2"
+    np.savetxt(table_filename, table_data, fmt="%.6e", delimiter="\t", header=header_str)
+    print(f"Structure functions vs x table saved as {table_filename}")
+
+
+def compare_exp_model_pdf_Nachtmann_xi(fixed_Q2, beam_energy, num_points=200):
+    """
+    Compares the PDF-based theoretical cross section with the ANL model cross section and experimental data,
+    as functions of the Nachtmann variable ξ. The conversion is done using the chain rule:
+       dσ/(dQ² dξ) = dσ/(dQ² dW) · (dW/dx) · (dx/dξ).
+    Also produces a 2×2 canvas with:
+      Top row: W1 = F1/Mp and W2 = F2/ω vs ξ.
+      Bottom row: F1 and F2 vs ξ.
+    Generates a text table with columns: Q2, ξ, W, W1, W2.
+    """
+    import math
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    Mp = 0.9385
+
+    def dWdx_abs(W, x, Q2):
+        return Q2/(2.0 * W * x**2)
+
+    def xi_of_x(x, Q2):
+        t = 4.0 * x**2 * Mp**2 / Q2
+        return 2.0 * x / (1.0 + np.sqrt(1.0+t))
+
+    def dxi_dx(x, Q2):
+        # For xi(x)= 2x/(1+sqrt(1+4x²Mp²/Q²))
+        t = 4.0 * x**2 * Mp**2 / Q2
+        sqrt_term = np.sqrt(1.0+t)
+        f = 1.0 + sqrt_term
+        return (2.0*f - (4.0*x*Mp**2)/(Q2*sqrt_term))/(f**2)
+
+    # Load PDF table to get x-range
+    pdf_filename = f"PDF_tables/tst_CJpdf_ISET=400_Q2={fixed_Q2}.dat"
+    if not __import__("os").path.isfile(pdf_filename):
+        raise FileNotFoundError(f"PDF file not found: {pdf_filename}")
+    pdf_table = __import__("pandas").read_csv(pdf_filename, delim_whitespace=True)
+    x_vals = np.linspace(np.min(pdf_table['x'].values), np.max(pdf_table['x'].values), num_points)
+    
+    # Compute corresponding Nachtmann ξ for each x
+    xi_vals = [xi_of_x(x, fixed_Q2) for x in x_vals]
+    
+    # Get PDF interpolators for F1 and F2
+    F1_W_interp, F2_W_interp, _ = get_pdf_interpolators(fixed_Q2)
+    
+    x_theory = []
+    W_vals = []
+    pdf_cross_sections_dxi = []
+    anl_cross_sections_dxi = []
+    F1_vals = []
+    F2_vals = []
+    W1_vals = []
+    W2_vals = []
+    
+    for x in x_vals:
+        try:
+            W_val = math.sqrt(Mp**2 + fixed_Q2*(1 - x)/x)
+        except Exception:
+            W_val = np.nan
+        W_vals.append(W_val)
+        x_theory.append(x)
+        try:
+            cs_pdf_dw = compute_cross_section_pdf(W_val, fixed_Q2, beam_energy, F1_W_interp, F2_W_interp)
+        except Exception:
+            cs_pdf_dw = np.nan
+        try:
+            cs_anl_dw = compute_cross_section(W_val, fixed_Q2, beam_energy, file_path="input_data/wempx.dat", verbose=False)
+        except Exception:
+            cs_anl_dw = np.nan
+        # Convert from dσ/(dQ²dW) to dσ/(dQ²dx)
+        try:
+            jacobian1 = dWdx_abs(W_val, x, fixed_Q2)
+        except Exception:
+            jacobian1 = np.nan
+        cs_pdf_dx = cs_pdf_dw * jacobian1 if not np.isnan(jacobian1) else np.nan
+        cs_anl_dx = cs_anl_dw * jacobian1 if not np.isnan(jacobian1) else np.nan
+        # Now, convert dx->dξ: dx/dξ = 1/(dξ/dx)
+        try:
+            dxi_dx_val = dxi_dx(x, fixed_Q2)
+            dx_dxi = 1.0/dxi_dx_val if (dxi_dx_val != 0 and not np.isnan(dxi_dx_val)) else np.nan
+        except Exception:
+            dx_dxi = np.nan
+        cs_pdf_dxi = cs_pdf_dx * dx_dxi if not np.isnan(dx_dxi) else np.nan
+        cs_anl_dxi = cs_anl_dx * dx_dxi if not np.isnan(dx_dxi) else np.nan
+        pdf_cross_sections_dxi.append(cs_pdf_dxi)
+        anl_cross_sections_dxi.append(cs_anl_dxi)
+        
+        # Structure functions:
+        try:
+            F1_val = F1_W_interp(W_val)
+            F2_val = F2_W_interp(W_val)
+        except Exception:
+            F1_val, F2_val = np.nan, np.nan
+        F1_vals.append(F1_val)
+        F2_vals.append(F2_val)
+        W1_val = F1_val / Mp if not np.isnan(F1_val) else np.nan
+        omega = (W_val**2 + fixed_Q2 - Mp**2)/(2.0*Mp)
+        W2_val = F2_val/omega if (omega>0 and not np.isnan(F2_val)) else np.nan
+        W1_vals.append(W1_val)
+        W2_vals.append(W2_val)
+    
+    # Experimental data conversion: W -> x -> ξ and convert cross sections accordingly.
+    exp_file = f"exp_data/InclusiveExpValera_Q2={fixed_Q2}.dat"
+    if not __import__("os").path.isfile(exp_file):
+        raise FileNotFoundError(f"Experimental data file {exp_file} not found.")
+    exp_data = __import__("pandas").read_csv(exp_file, sep=r'\s+')
+    W_exp = exp_data["W"].values
+    sigma_exp_dw = exp_data["sigma"].values * 1e-3
+    err_exp_dw = np.sqrt(exp_data["error"]**2+exp_data["sys_error"]**2)*1e-3
+    xi_exp = []
+    sigma_exp_dxi = []
+    err_exp_dxi = []
+    for i, W_e in enumerate(W_exp):
+        denom = (W_e**2 - Mp**2 + fixed_Q2)
+        if denom != 0:
+            x_e = fixed_Q2/denom
+        else:
+            x_e = np.nan
+        xi_e = xi_of_x(x_e, fixed_Q2)
+        xi_exp.append(xi_e)
+        try:
+            jac1_e = dWdx_abs(W_e, x_e, fixed_Q2)
+        except Exception:
+            jac1_e = np.nan
+        sigma_exp_dx = sigma_exp_dw[i]*jac1_e if not np.isnan(jac1_e) else np.nan
+        try:
+            dxi_dx_e = dxi_dx(x_e, fixed_Q2)
+            dx_dxi_e = 1.0/dxi_dx_e if (dxi_dx_e != 0 and not np.isnan(dxi_dx_e)) else np.nan
+        except Exception:
+            dx_dxi_e = np.nan
+        sigma_exp_val = sigma_exp_dx * dx_dxi_e if not np.isnan(dx_dxi_e) else np.nan
+        err_exp_val = err_exp_dw[i]*jac1_e*dx_dxi_e if (not np.isnan(jac1_e) and not np.isnan(dx_dxi_e)) else np.nan
+        sigma_exp_dxi.append(sigma_exp_val)
+        err_exp_dxi.append(err_exp_val)
+    
+    plt.figure(figsize=(8,6))
+    plt.plot(xi_vals, pdf_cross_sections_dxi, label="Theory (from PDF)", color="green", linestyle="--")
+    plt.plot(xi_vals, anl_cross_sections_dxi, label="ANL Model", color="blue")
+    plt.errorbar(xi_exp, sigma_exp_dxi, yerr=err_exp_dxi, fmt="o", color="red", label="Experimental data")
+    plt.xlabel("Nachtmann ξ")
+    plt.ylabel("dσ/dQ²dξ (10⁻³⁰ cm²)")
+    plt.title(f"dσ/dQ²dξ vs ξ at Q²={fixed_Q2} GeV², E={beam_energy} GeV")
+    plt.legend()
+    plt.grid(True)
+    xi_plot_min = max(np.nanmin(xi_exp), np.nanmin(xi_vals))*0.95  # Adjust to ensure the plot starts at the minimum of the data
+    xi_plot_max = np.nanmax(xi_vals)
+    plt.xlim(xi_plot_min, xi_plot_max)
+    plt.tight_layout()
+    filename_cs = f"cross_section_vs_xi_comparison_Q2={fixed_Q2}_Ebeam={beam_energy}.png"
+    plt.savefig(filename_cs, dpi=300)
+    plt.close()
+    print(f"Cross section vs ξ plot saved as {filename_cs}")
+    
+    # 4-panel structure functions plot vs ξ (2x2 grid)
+    fig, axs = plt.subplots(2,2, figsize=(12,10))
+    axs[0,0].plot(xi_vals, W1_vals, label="W1 = F1/Mp", color="magenta")
+    axs[0,0].set_xlabel("ξ (Nachtmann)")
+    axs[0,0].set_ylabel("W1")
+    axs[0,0].set_title("W1 vs ξ")
+    axs[0,0].grid(True)
+    axs[0,0].legend()
+    
+    axs[0,1].plot(xi_vals, W2_vals, label="W2 = F2/ω", color="orange")
+    axs[0,1].set_xlabel("ξ (Nachtmann)")
+    axs[0,1].set_ylabel("W2")
+    axs[0,1].set_title("W2 vs ξ")
+    axs[0,1].grid(True)
+    axs[0,1].legend()
+    
+    axs[1,0].plot(xi_vals, F1_vals, label="F1", color="blue")
+    axs[1,0].set_xlabel("ξ (Nachtmann)")
+    axs[1,0].set_ylabel("F1")
+    axs[1,0].set_title("F1 vs ξ")
+    axs[1,0].grid(True)
+    axs[1,0].legend()
+    
+    axs[1,1].plot(xi_vals, F2_vals, label="F2", color="green")
+    axs[1,1].set_xlabel("ξ (Nachtmann)")
+    axs[1,1].set_ylabel("F2")
+    axs[1,1].set_title("F2 vs ξ")
+    axs[1,1].grid(True)
+    axs[1,1].legend()
+    
+    fig.suptitle(f"PDF-based Structure Functions vs ξ at Q²={fixed_Q2} GeV²", fontsize=16)
+    plt.tight_layout(rect=[0,0,1,0.95])
+    filename_sf = f"structure_functions_4plots_vs_xi_Q2={fixed_Q2}_Ebeam={beam_energy}.png"
+    plt.savefig(filename_sf, dpi=300)
+    plt.close()
+    print(f"4-panel structure functions vs ξ plot saved as {filename_sf}")
+    
+    # Write text table (columns: Q2, ξ, W, W1, W2)
+    table_data = np.column_stack((np.full(len(xi_vals), fixed_Q2), np.array(xi_vals),
+                                    np.array(W_vals), np.array(W1_vals), np.array(W2_vals)))
+    table_filename = f"structure_functions_table_vs_xi_Q2={fixed_Q2}_Ebeam={beam_energy}.txt"
+    header_str = "Q2\tξ\tW\tW1\tW2"
+    np.savetxt(table_filename, table_data, fmt="%.6e", delimiter="\t", header=header_str)
+    print(f"Structure functions vs ξ table saved as {table_filename}")

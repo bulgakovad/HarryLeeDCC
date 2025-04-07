@@ -1,11 +1,19 @@
-from functions import compute_cross_section, plot_cross_section_vs_W, generate_table, compare_strfun, compare_exp_model_pdf
+from functions import (
+    compute_cross_section,
+    plot_cross_section_vs_W,
+    generate_table,
+    compare_strfun,
+    compare_exp_model_pdf,
+    compare_exp_model_pdf_Bjorken_x,
+    compare_exp_model_pdf_Nachtmann_xi
+)
 
 def main():
     """
     Main routine: ask the user whether to calculate a single cross section ("calc"),
-    plot cross sections ("plot"), generate a table ("table"), compare structure
-    function data ("compare_strfun"), or compare experimental data with the PDF-based model ("compare_exp_model_pdf"),
-    then perform the requested action.
+    plot cross sections ("plot"), generate a table ("table"), compare structure function data ("compare_strfun"),
+    or compare experimental data with the PDF-based model ("compare_exp_model_pdf").
+    If the latter is chosen, the user is first asked what is on the x-axis ("W" or "x").
     """
     mode = input("Enter 'calc'/'plot'/'table'/'compare_strfun'/'compare_exp_model_pdf': ").strip().lower()
     
@@ -73,14 +81,22 @@ def main():
     
     elif mode == "compare_exp_model_pdf":
         try:
-            Q2_input = float(input("Enter fixed Q² (GeV²) for PDF-based comparison: "))
+            xaxis_choice = input("What is on X-axis? (Enter 'W', 'x', or 'xi'): ").strip().lower()
+            Q2_input = float(input("Enter fixed Q² (GeV²): "))
             beam_energy = float(input("Enter beam (lepton) energy (GeV): "))
         except ValueError:
             print("Invalid input. Please enter numerical values.")
             return
         
         try:
-            compare_exp_model_pdf(Q2_input, beam_energy, num_points=200)
+            if xaxis_choice == "w":
+                compare_exp_model_pdf(Q2_input, beam_energy, num_points=200)
+            elif xaxis_choice == "x":
+                compare_exp_model_pdf_Bjorken_x(Q2_input, beam_energy, num_points=200)
+            elif xaxis_choice == "xi":
+                compare_exp_model_pdf_Nachtmann_xi(Q2_input, beam_energy, num_points=200)
+            else:
+                print("Invalid X-axis choice. Please enter 'W', 'x', or 'xi'.")
         except Exception as e:
             print(f"Error: {e}")
     
