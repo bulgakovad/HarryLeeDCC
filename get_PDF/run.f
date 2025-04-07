@@ -7,7 +7,7 @@
       character*20 iset_str, Q2_str
       integer nQ
       nQ = 1
-      Q2 = 9.699
+      Q2 = 2.774
 
       print*,'ISET = '
       read*, iset
