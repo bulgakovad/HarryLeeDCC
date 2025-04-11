@@ -484,8 +484,8 @@ def compare_exp_model_pdf(fixed_Q2, beam_energy, num_points=200):
 
     # --- Plot cross sections vs W.
     plt.figure(figsize=(8,6))
-    plt.plot(W_vals, pdf_cross_sections, label="PDF-based model", color='green', linestyle='--')
-    plt.plot(W_vals, anl_cross_sections, label="ANL model", color='blue', linestyle='-.')
+    plt.plot(W_vals, pdf_cross_sections, label="PDF model", color='green', linestyle='--')
+    plt.plot(W_vals, anl_cross_sections, label="ANL-Osaka model", color='blue', linestyle='-')
     # Load experimental data:
     exp_file = f"exp_data/wempx.dat"  # (Or your actual experimental filename, here using same as before)
     # Here we assume experimental file exists; adjust as needed.
@@ -498,6 +498,7 @@ def compare_exp_model_pdf(fixed_Q2, beam_energy, num_points=200):
                  fmt="o", color="red", label="Experimental data")
     plt.xlabel("W (GeV)")
     plt.ylabel("dσ/dW/dQ² (10⁻³⁰ cm²/GeV³)")
+    plt.ylim(0, 0.0045)
     plt.title(f"Cross Section vs W at Q² = {fixed_Q2} GeV², E = {beam_energy} GeV")
     plt.legend()
     plt.grid(True)
@@ -511,7 +512,7 @@ def compare_exp_model_pdf(fixed_Q2, beam_energy, num_points=200):
     fig, axs = plt.subplots(2, 2, figsize=(12, 10))
     # Top left: W1 vs W
     axs[0, 0].plot(W_vals, pdf_W1_vals, label="PDF: W1 = F1/Mₚ", color="magenta", linestyle="-")
-    axs[0, 0].plot(W_vals, anl_W1_vals, label="ANL: W1", color="magenta", linestyle="--")
+    axs[0, 0].plot(W_vals, anl_W1_vals, label="ANL-Osaka: W1", color="magenta", linestyle="--")
     axs[0, 0].set_xlabel("W (GeV)")
     axs[0, 0].set_ylabel("W1")
     axs[0, 0].set_title("W1 vs W")
@@ -519,7 +520,7 @@ def compare_exp_model_pdf(fixed_Q2, beam_energy, num_points=200):
     axs[0, 0].legend()
     # Top right: W2 vs W
     axs[0, 1].plot(W_vals, pdf_W2_vals, label="PDF: W2 = F2/ω", color="orange", linestyle="-")
-    axs[0, 1].plot(W_vals, anl_W2_vals, label="ANL: W2", color="orange", linestyle="--")
+    axs[0, 1].plot(W_vals, anl_W2_vals, label="ANL-Osaka: W2", color="orange", linestyle="--")
     axs[0, 1].set_xlabel("W (GeV)")
     axs[0, 1].set_ylabel("W2")
     axs[0, 1].set_title("W2 vs W")
@@ -527,7 +528,7 @@ def compare_exp_model_pdf(fixed_Q2, beam_energy, num_points=200):
     axs[0, 1].legend()
     # Bottom left: F1 vs W
     axs[1, 0].plot(W_vals, pdf_F1_vals, label="PDF: F1", color="blue", linestyle="-")
-    axs[1, 0].plot(W_vals, anl_F1_vals, label="ANL: F1", color="blue", linestyle="--")
+    axs[1, 0].plot(W_vals, anl_F1_vals, label="ANL-Osaka: F1", color="blue", linestyle="--")
     axs[1, 0].set_xlabel("W (GeV)")
     axs[1, 0].set_ylabel("F1")
     axs[1, 0].set_title("F1 vs W")
@@ -535,7 +536,7 @@ def compare_exp_model_pdf(fixed_Q2, beam_energy, num_points=200):
     axs[1, 0].legend()
     # Bottom right: F2 vs W
     axs[1, 1].plot(W_vals, pdf_F2_vals, label="PDF: F2", color="green", linestyle="-")
-    axs[1, 1].plot(W_vals, anl_F2_vals, label="ANL: F2", color="green", linestyle="--")
+    axs[1, 1].plot(W_vals, anl_F2_vals, label="ANL-Osaka: F2", color="green", linestyle="--")
     axs[1, 1].set_xlabel("W (GeV)")
     axs[1, 1].set_ylabel("F2")
     axs[1, 1].set_title("F2 vs W")
@@ -544,7 +545,7 @@ def compare_exp_model_pdf(fixed_Q2, beam_energy, num_points=200):
     fig.suptitle(f"Structure Functions vs W at Q² = {fixed_Q2} GeV², E = {beam_energy} GeV", fontsize=16)
     plt.tight_layout(rect=[0, 0, 1, 0.95])
     filename_sf = f"structure_functions_4plots_vs_W_Q2={fixed_Q2}_Ebeam={beam_energy}.png"
-    plt.savefig(filename_sf, dpi=300)
+    #plt.savefig(filename_sf, dpi=300)
     plt.close()
     print(f"4-panel structure functions vs W plot saved as {filename_sf}")
 
@@ -552,7 +553,7 @@ def compare_exp_model_pdf(fixed_Q2, beam_energy, num_points=200):
     table_data = np.column_stack((np.full(W_vals.shape, fixed_Q2), W_vals, pdf_W1_vals, anl_W1_vals, pdf_W2_vals, anl_W2_vals, anl_F1_vals, anl_F2_vals, pdf_F1_vals, pdf_F2_vals))
     table_filename = f"structure_functions_table_vs_W_Q2={fixed_Q2}_Ebeam={beam_energy}.txt"
     header_str = "Q2\tW\tPDF_W1\tANL_W1\tPDF_W2\tANL_W2\tANL_F1\tANL_F2\tPDF_F1\tPDF_F2"
-    np.savetxt(table_filename, table_data, fmt="%.6e", delimiter="\t", header=header_str)
+    #np.savetxt(table_filename, table_data, fmt="%.6e", delimiter="\t", header=header_str)
     print(f"Structure functions table vs W saved as {table_filename}")
 
 
@@ -669,7 +670,7 @@ def compare_exp_model_pdf_Bjorken_x(fixed_Q2, beam_energy, num_points=200):
     
     plt.figure(figsize=(8,6))
     plt.plot(x_theory, pdf_cross_sections_dx, label="PDF Model", color="green", linestyle="--")
-    plt.plot(x_theory, anl_cross_sections_dx, label="ANL Model", color="blue")
+    plt.plot(x_theory, anl_cross_sections_dx, label="ANL-Osaka Model", color="blue")
     plt.errorbar(x_exp, sigma_exp_dx, yerr=err_exp_dx, fmt="o", color="red", markersize=3, label="Experimental data")
     plt.xlabel("Bjorken x")
     plt.ylabel("dσ/dQ²dx (10⁻³⁰ cm²)")
@@ -677,7 +678,11 @@ def compare_exp_model_pdf_Bjorken_x(fixed_Q2, beam_energy, num_points=200):
     plt.legend()
     plt.grid(True)
     x_plot_min = max(np.nanmin(x_exp), np.nanmin(x_theory))*0.95
-    plt.xlim(x_plot_min, np.nanmax(x_theory))
+    #plt.xlim(x_plot_min, np.nanmax(x_theory))
+    plt.xlim(0.3,1)
+    y_max = np.nanmax(sigma_exp_dx)
+    #plt.ylim(0, y_max*1.1)
+    plt.ylim(0, 0.02)
     plt.tight_layout()
     filename_cs = f"cross_section_vs_x_comparison_Q2={fixed_Q2}_Ebeam={beam_energy}.png"
     plt.savefig(filename_cs, dpi=300)
@@ -687,7 +692,7 @@ def compare_exp_model_pdf_Bjorken_x(fixed_Q2, beam_energy, num_points=200):
     # 2x2 panel for structure functions vs x.
     fig, axs = plt.subplots(2,2, figsize=(12,10))
     axs[0,0].plot(x_theory, PDF_W1_vals, label="PDF W1 (F1/Mp)", color="magenta")
-    axs[0,0].plot(x_theory, ANL_W1_vals, label="ANL W1", color="magenta", linestyle="--")
+    axs[0,0].plot(x_theory, ANL_W1_vals, label="ANL-Osaka W1", color="magenta", linestyle="--")
     axs[0,0].set_xlabel("x (Bjorken)")
     axs[0,0].set_ylabel("W1")
     axs[0,0].set_title("W1 vs x")
@@ -695,7 +700,7 @@ def compare_exp_model_pdf_Bjorken_x(fixed_Q2, beam_energy, num_points=200):
     axs[0,0].legend()
     
     axs[0,1].plot(x_theory, PDF_W2_vals, label="PDF W2 (F2/ω)", color="orange")
-    axs[0,1].plot(x_theory, ANL_W2_vals, label="ANL W2", color="orange", linestyle="--")
+    axs[0,1].plot(x_theory, ANL_W2_vals, label="ANL-Osaka W2", color="orange", linestyle="--")
     axs[0,1].set_xlabel("x (Bjorken)")
     axs[0,1].set_ylabel("W2")
     axs[0,1].set_title("W2 vs x")
@@ -703,7 +708,7 @@ def compare_exp_model_pdf_Bjorken_x(fixed_Q2, beam_energy, num_points=200):
     axs[0,1].legend()
     
     axs[1,0].plot(x_theory, PDF_F1_vals, label="PDF F1", color="blue")
-    axs[1,0].plot(x_theory, ANL_F1_vals, label="ANL F1", color="blue", linestyle="--")
+    axs[1,0].plot(x_theory, ANL_F1_vals, label="ANL-Osaka F1", color="blue", linestyle="--")
     axs[1,0].set_xlabel("x (Bjorken)")
     axs[1,0].set_ylabel("F1")
     axs[1,0].set_title("F1 vs x")
@@ -711,7 +716,7 @@ def compare_exp_model_pdf_Bjorken_x(fixed_Q2, beam_energy, num_points=200):
     axs[1,0].legend()
     
     axs[1,1].plot(x_theory, PDF_F2_vals, label="PDF F2", color="green")
-    axs[1,1].plot(x_theory, ANL_F2_vals, label="ANL F2", color="green", linestyle="--")
+    axs[1,1].plot(x_theory, ANL_F2_vals, label="ANL-Osaka F2", color="green", linestyle="--")
     axs[1,1].set_xlabel("x (Bjorken)")
     axs[1,1].set_ylabel("F2")
     axs[1,1].set_title("F2 vs x")
@@ -721,7 +726,7 @@ def compare_exp_model_pdf_Bjorken_x(fixed_Q2, beam_energy, num_points=200):
     fig.suptitle(f"Structure Functions vs x at Q²={fixed_Q2} GeV²", fontsize=16)
     plt.tight_layout(rect=[0,0,1,0.95])
     filename_sf = f"structure_functions_4plots_vs_x_Q2={fixed_Q2}_Ebeam={beam_energy}.png"
-    plt.savefig(filename_sf, dpi=300)
+    #plt.savefig(filename_sf, dpi=300)
     plt.close()
     print(f"4-panel structure functions vs x plot saved as {filename_sf}")
     
@@ -732,7 +737,7 @@ def compare_exp_model_pdf_Bjorken_x(fixed_Q2, beam_energy, num_points=200):
                                    np.array(ANL_F1_vals), np.array(ANL_F2_vals)))
     table_filename = f"structure_functions_table_vs_x_Q2={fixed_Q2}_Ebeam={beam_energy}.txt"
     header_str = "Q2\tx\tW\tPDF_W1\tPDF_W2\tPDF_F1\tPDF_F2\tANL_W1\tANL_W2\tANL_F1\tANL_F2"
-    np.savetxt(table_filename, table_data, fmt="%.6e", delimiter="\t", header=header_str)
+    #np.savetxt(table_filename, table_data, fmt="%.6e", delimiter="\t", header=header_str)
     print(f"Structure functions vs x table saved as {table_filename}")
 
 
@@ -880,7 +885,7 @@ def compare_exp_model_pdf_Nachtmann_xi(fixed_Q2, beam_energy, num_points=200):
     
     plt.figure(figsize=(8,6))
     plt.plot(xi_vals, pdf_cross_sections_dxi, label="PDF Model", color="green", linestyle="--")
-    plt.plot(xi_vals, anl_cross_sections_dxi, label="ANL Model", color="blue")
+    plt.plot(xi_vals, anl_cross_sections_dxi, label="ANL-Osaka Model", color="blue")
     plt.errorbar(xi_exp, sigma_exp_dxi, yerr=err_exp_dxi, fmt="o", color="red", markersize=3, label="Experimental data")
     plt.xlabel("Nachtmann ξ")
     plt.ylabel("dσ/dQ²dξ (10⁻³⁰ cm²)")
@@ -889,7 +894,11 @@ def compare_exp_model_pdf_Nachtmann_xi(fixed_Q2, beam_energy, num_points=200):
     plt.grid(True)
     xi_plot_min = max(np.nanmin(xi_exp), np.nanmin(xi_vals))*0.95
     xi_plot_max = np.nanmax(xi_vals)*1.05
-    plt.xlim(xi_plot_min, xi_plot_max)
+    #plt.xlim(xi_plot_min, xi_plot_max)
+    plt.xlim(0.3,0.9)
+    y_max = np.nanmax(sigma_exp_dxi)
+    #plt.ylim(0, y_max*1.1)
+    plt.ylim(0, 0.0225)
     plt.tight_layout()
     filename_cs = f"cross_section_vs_xi_comparison_Q2={fixed_Q2}_Ebeam={beam_energy}.png"
     plt.savefig(filename_cs, dpi=300)
@@ -899,7 +908,7 @@ def compare_exp_model_pdf_Nachtmann_xi(fixed_Q2, beam_energy, num_points=200):
     # 2x2 panel for structure functions vs ξ.
     fig, axs = plt.subplots(2,2, figsize=(12,10))
     axs[0,0].plot(xi_vals, PDF_W1_vals, label="PDF W1 (F1/Mp)", color="magenta")
-    axs[0,0].plot(xi_vals, ANL_W1_vals, label="ANL W1", color="magenta", linestyle="--")
+    axs[0,0].plot(xi_vals, ANL_W1_vals, label="ANL-Osaka W1", color="magenta", linestyle="--")
     axs[0,0].set_xlabel("ξ (Nachtmann)")
     axs[0,0].set_ylabel("W1")
     axs[0,0].set_title("W1 vs ξ")
@@ -907,7 +916,7 @@ def compare_exp_model_pdf_Nachtmann_xi(fixed_Q2, beam_energy, num_points=200):
     axs[0,0].legend()
     
     axs[0,1].plot(xi_vals, PDF_W2_vals, label="PDF W2 (F2/ω)", color="orange")
-    axs[0,1].plot(xi_vals, ANL_W2_vals, label="ANL W2", color="orange", linestyle="--")
+    axs[0,1].plot(xi_vals, ANL_W2_vals, label="ANL-Osaka W2", color="orange", linestyle="--")
     axs[0,1].set_xlabel("ξ (Nachtmann)")
     axs[0,1].set_ylabel("W2")
     axs[0,1].set_title("W2 vs ξ")
@@ -915,7 +924,7 @@ def compare_exp_model_pdf_Nachtmann_xi(fixed_Q2, beam_energy, num_points=200):
     axs[0,1].legend()
     
     axs[1,0].plot(xi_vals, PDF_F1_vals, label="PDF F1", color="blue")
-    axs[1,0].plot(xi_vals, ANL_F1_vals, label="ANL F1", color="blue", linestyle="--")
+    axs[1,0].plot(xi_vals, ANL_F1_vals, label="ANL-Osaka F1", color="blue", linestyle="--")
     axs[1,0].set_xlabel("ξ (Nachtmann)")
     axs[1,0].set_ylabel("F1")
     axs[1,0].set_title("F1 vs ξ")
@@ -923,7 +932,7 @@ def compare_exp_model_pdf_Nachtmann_xi(fixed_Q2, beam_energy, num_points=200):
     axs[1,0].legend()
     
     axs[1,1].plot(xi_vals, PDF_F2_vals, label="PDF F2", color="green")
-    axs[1,1].plot(xi_vals, ANL_F2_vals, label="ANL F2", color="green", linestyle="--")
+    axs[1,1].plot(xi_vals, ANL_F2_vals, label="ANL-Osaka F2", color="green", linestyle="--")
     axs[1,1].set_xlabel("ξ (Nachtmann)")
     axs[1,1].set_ylabel("F2")
     axs[1,1].set_title("F2 vs ξ")
@@ -933,7 +942,7 @@ def compare_exp_model_pdf_Nachtmann_xi(fixed_Q2, beam_energy, num_points=200):
     fig.suptitle(f"Structure Functions vs ξ at Q²={fixed_Q2} GeV²", fontsize=16)
     plt.tight_layout(rect=[0,0,1,0.95])
     filename_sf = f"structure_functions_4plots_vs_xi_Q2={fixed_Q2}_Ebeam={beam_energy}.png"
-    plt.savefig(filename_sf, dpi=300)
+    #plt.savefig(filename_sf, dpi=300)
     plt.close()
     print(f"4-panel structure functions vs ξ plot saved as {filename_sf}")
     
@@ -944,5 +953,5 @@ def compare_exp_model_pdf_Nachtmann_xi(fixed_Q2, beam_energy, num_points=200):
                                     np.array(ANL_F1_vals), np.array(ANL_F2_vals)))
     table_filename = f"structure_functions_table_vs_xi_Q2={fixed_Q2}_Ebeam={beam_energy}.txt"
     header_str = "Q2\tξ\tW\tPDF_W1\tPDF_W2\tPDF_F1\tPDF_F2\tANL_W1\tANL_W2\tANL_F1\tANL_F2"
-    np.savetxt(table_filename, table_data, fmt="%.6e", delimiter="\t", header=header_str)
+    #np.savetxt(table_filename, table_data, fmt="%.6e", delimiter="\t", header=header_str)
     print(f"Structure functions vs ξ table saved as {table_filename}")
