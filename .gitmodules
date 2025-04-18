@@ -1,0 +1,3 @@
+[submodule "interpolation/SFRes"]
+	path = interpolation/SFRes
+	url = https://github.com/astridhillerblin/SFRes.git

@@ -415,10 +415,7 @@ def compare_exp_model_pdf(fixed_Q2, beam_energy, num_points=200):
     For each subplot the PDF-based (solid line) and ANL model (dashed line) curves are overlaid.
     A text table is also generated.
     """
-    import math
-    import numpy as np
-    import matplotlib.pyplot as plt
-    import os
+
 
     Mp = 0.9385
     # Get PDF interpolators from the PDF table.
@@ -565,11 +562,6 @@ def compare_exp_model_pdf_Bjorken_x(fixed_Q2, beam_energy, num_points=200):
       Bottom row: Raw structure functions F1 and F2 vs x (PDF: solid; ANL: dashed).
     Generates a text table with columns: Q2, x, PDF_W1, PDF_W2, PDF_F1, PDF_F2, ANL_W1, ANL_W2, ANL_F1, ANL_F2.
     """
-    import math
-    import numpy as np
-    import matplotlib.pyplot as plt
-    import pandas as pd
-    import os
 
     Mp = 0.9385
     pdf_filename = f"PDF_tables/tst_CJpdf_ISET=400_Q2={fixed_Q2}.dat"
@@ -678,11 +670,11 @@ def compare_exp_model_pdf_Bjorken_x(fixed_Q2, beam_energy, num_points=200):
     plt.legend()
     plt.grid(True)
     x_plot_min = max(np.nanmin(x_exp), np.nanmin(x_theory))*0.95
-    #plt.xlim(x_plot_min, np.nanmax(x_theory))
-    plt.xlim(0.3,1)
+    plt.xlim(x_plot_min, np.nanmax(x_theory))
+    #plt.xlim(0.3,1)
     y_max = np.nanmax(sigma_exp_dx)
-    #plt.ylim(0, y_max*1.1)
-    plt.ylim(0, 0.02)
+    plt.ylim(0, y_max*1.1)
+    #plt.ylim(0, 0.02)
     plt.tight_layout()
     filename_cs = f"cross_section_vs_x_comparison_Q2={fixed_Q2}_Ebeam={beam_energy}.png"
     plt.savefig(filename_cs, dpi=300)
@@ -737,6 +729,7 @@ def compare_exp_model_pdf_Bjorken_x(fixed_Q2, beam_energy, num_points=200):
                                    np.array(ANL_F1_vals), np.array(ANL_F2_vals)))
     table_filename = f"structure_functions_table_vs_x_Q2={fixed_Q2}_Ebeam={beam_energy}.txt"
     header_str = "Q2\tx\tW\tPDF_W1\tPDF_W2\tPDF_F1\tPDF_F2\tANL_W1\tANL_W2\tANL_F1\tANL_F2"
+    #Do not save
     #np.savetxt(table_filename, table_data, fmt="%.6e", delimiter="\t", header=header_str)
     print(f"Structure functions vs x table saved as {table_filename}")
 
@@ -752,11 +745,7 @@ def compare_exp_model_pdf_Nachtmann_xi(fixed_Q2, beam_energy, num_points=200):
       Bottom row: Raw structure functions F1 and F2 vs ξ (PDF: solid; ANL: dashed).
     Generates a text table with columns: Q2, ξ, W, PDF_W1, PDF_W2, PDF_F1, PDF_F2, ANL_W1, ANL_W2, ANL_F1, ANL_F2.
     """
-    import math
-    import numpy as np
-    import matplotlib.pyplot as plt
-    import pandas as pd
-    import os
+
 
     Mp = 0.9385
 
@@ -894,11 +883,11 @@ def compare_exp_model_pdf_Nachtmann_xi(fixed_Q2, beam_energy, num_points=200):
     plt.grid(True)
     xi_plot_min = max(np.nanmin(xi_exp), np.nanmin(xi_vals))*0.95
     xi_plot_max = np.nanmax(xi_vals)*1.05
-    #plt.xlim(xi_plot_min, xi_plot_max)
-    plt.xlim(0.3,0.9)
+    plt.xlim(xi_plot_min, xi_plot_max)
+    #plt.xlim(0.3,0.9)
     y_max = np.nanmax(sigma_exp_dxi)
-    #plt.ylim(0, y_max*1.1)
-    plt.ylim(0, 0.0225)
+    plt.ylim(0, y_max*1.1)
+    #plt.ylim(0, 0.0225)
     plt.tight_layout()
     filename_cs = f"cross_section_vs_xi_comparison_Q2={fixed_Q2}_Ebeam={beam_energy}.png"
     plt.savefig(filename_cs, dpi=300)
@@ -953,5 +942,101 @@ def compare_exp_model_pdf_Nachtmann_xi(fixed_Q2, beam_energy, num_points=200):
                                     np.array(ANL_F1_vals), np.array(ANL_F2_vals)))
     table_filename = f"structure_functions_table_vs_xi_Q2={fixed_Q2}_Ebeam={beam_energy}.txt"
     header_str = "Q2\tξ\tW\tPDF_W1\tPDF_W2\tPDF_F1\tPDF_F2\tANL_W1\tANL_W2\tANL_F1\tANL_F2"
-    #np.savetxt(table_filename, table_data, fmt="%.6e", delimiter="\t", header=header_str)
+    # Do not save
+    #np.savetxt(table_filename, table_data, fmt="%.6e", delimiter="\t", header=header_str) 
     print(f"Structure functions vs ξ table saved as {table_filename}")
+
+
+def compare_exp_pdf_resonance(fixed_Q2, beam_energy):
+    """
+    Compares experimental RGA data with the sum of the PDF prediction and the resonance contribution.
+    
+    This function looks for a resonance prediction file in the folder "resonance_contributions"
+    with the name "sum_res_Q2={fixed_Q2}.dat". This file is assumed to contain at least three columns:
+      - The first column is W.
+      - The second-to-last column contains the mean predicted cross section as a function of W.
+      - The last column contains the standard deviation of the predicted cross section.
+    The mean and standard deviation values are multiplied by 1e-3 to convert to microbarns.
+    
+    Then the function obtains the PDF-based differential cross section prediction at the same
+    W values using compute_cross_section_pdf. The combined prediction is computed as the sum of
+    the PDF prediction and the resonance mean.
+    
+    Finally, experimental data is loaded from "exp_data/InclusiveExpValera_Q2={fixed_Q2}.dat" and all three
+    predictions (PDF-only, Resonance-only, and Combined) are plotted along with the experimental data.
+    Additionally, an uncertainty band is drawn around both the resonance-only curve and the combined prediction.
+   """
+
+    # Build the file path for the resonance prediction file.
+    res_file = f"resonance_contributions/sum_res_Q2={fixed_Q2}.dat"
+    if not os.path.isfile(res_file):
+        raise FileNotFoundError(f"Resonance file {res_file} not found.")
+    
+    # Try loading resonance data while skipping header, fall back if it fails.
+    try:
+        res_data = np.loadtxt(res_file, skiprows=1)
+    except Exception:
+        res_data = np.loadtxt(res_file)
+    
+    # Extract resonance data:
+    # First column: W.
+    # Second-to-last column: resonance mean.
+    # Last column: resonance standard deviation.
+    W_res = res_data[:, 0]
+    resonance_mean = res_data[:, -2] * 1e-3   # convert to microbarns
+    resonance_std  = res_data[:, -1] * 1e-3     # convert to microbarns
+
+    # Get PDF interpolators (based on the given fixed_Q2).
+    F1_W_interp, F2_W_interp, _ = get_pdf_interpolators(fixed_Q2)
+    
+    # For each W in the resonance file, compute the PDF prediction using compute_cross_section_pdf.
+    pdf_pred = []
+    for W in W_res:
+        try:
+            pred = compute_cross_section_pdf(W, fixed_Q2, beam_energy, F1_W_interp, F2_W_interp)
+        except Exception:
+            pred = np.nan
+        pdf_pred.append(pred)
+    pdf_pred = np.array(pdf_pred)
+    
+    # Compute the combined prediction: PDF prediction + resonance mean.
+    combined_pred = pdf_pred + resonance_mean
+    # Compute combined uncertainty band (assuming PDF is error-free).
+    combined_lower = pdf_pred + (resonance_mean - resonance_std)
+    combined_upper = pdf_pred + (resonance_mean + resonance_std)
+    
+    # Load experimental data from the RGA file.
+    exp_file = f"exp_data/InclusiveExpValera_Q2={fixed_Q2}.dat"
+    if not os.path.isfile(exp_file):
+        raise FileNotFoundError(f"Experimental data file {exp_file} not found.")
+    # Read using pandas (assuming the file has a header).
+    exp_data = pd.read_csv(exp_file, sep=r'\s+')
+    W_exp = exp_data["W"].values
+    sigma_exp = exp_data["sigma"].values * 1e-3  # convert to microbarns
+    sigma_err = np.sqrt(exp_data["error"]**2 + exp_data["sys_error"]**2) * 1e-3
+
+    # Plot all curves.
+    plt.figure(figsize=(8,6))
+    # Plot PDF prediction.
+    plt.plot(W_res, pdf_pred, label="PDF Prediction", color="green", linestyle=":")
+    # Plot resonance prediction with its band.
+    plt.plot(W_res, resonance_mean, label="Resonance Mean", color="blue", linestyle="--")
+    plt.fill_between(W_res, resonance_mean - resonance_std, resonance_mean + resonance_std,
+                     color="blue", alpha=0.3 )
+    # Plot combined prediction with its uncertainty band.
+    plt.plot(W_res, combined_pred, label="Combined (PDF + Resonance)", color="purple", linewidth=2)
+    plt.fill_between(W_res, combined_lower, combined_upper, color="purple", alpha=0.3)
+    # Plot experimental data.
+    plt.errorbar(W_exp, sigma_exp, yerr=sigma_err, fmt="o", color="red", markersize=4,
+                 label="Experimental RGA Data")
+    plt.xlabel("W (GeV)")
+    plt.ylabel("dσ/dW/dQ² (μb/GeV³)")
+    plt.title(f"Combined PDF + Resonance vs Experimental Data at Q² = {fixed_Q2} GeV², E = {beam_energy} GeV")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    filename = f"compare_resonance_vs_exp_Q2={fixed_Q2}_E={beam_energy}.png"
+    plt.savefig(filename, dpi=300)
+    plt.close()
+    print(f"Combined PDF + Resonance vs Experimental plot saved as {filename}")
+
