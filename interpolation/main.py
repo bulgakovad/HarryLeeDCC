@@ -6,7 +6,9 @@ from functions import (
     compare_exp_model_pdf,
     compare_exp_model_pdf_Bjorken_x,
     compare_exp_model_pdf_Nachtmann_xi,
-    compare_exp_pdf_resonance
+    compare_exp_pdf_resonance,
+    fit_exp_data,
+    exp_data_minus_pdf_table
 )
 
 def main():
@@ -21,7 +23,7 @@ def main():
      Available Q2: 2.774,3.244,3.793,4.435,5.187,6.065,7.093,8.294,9.699
     """
     mode = input(
-        "Enter 'calc'/'plot'/'table'/'compare_strfun'/'compare_exp_model_pdf'/'compare_exp_pdf_resonance': "
+         "Enter 'calc'/'plot'/'table'/'compare_strfun'/'compare_exp_model_pdf'/'compare_exp_pdf_resonance'/'fit_exp_data'/'exp_data_minus_pdf_table' : "
     ).strip().lower()
     
     file_path = "input_data/wempx.dat"
@@ -144,6 +146,37 @@ def main():
                 compare_exp_pdf_resonance(q2, beam_energy)
             except Exception as e:
                 print(f"Error for Q² = {q2}: {e}")
+    elif mode == "fit_exp_data":
+        try:
+            q2_input_str = input("Enter Q² values (GeV²) to fit, separated by commas: ").strip()
+            q2_list = [float(s) for s in q2_input_str.split(",") if s.strip()]
+            beam_energy = float(input("Enter beam (lepton) energy (GeV): "))
+        except ValueError:
+            print("Invalid input. Please enter numerical values for Q² and beam energy.")
+            return
+
+        try:
+            print(f"\nRunning fit_exp_data for Q² = {q2_list} GeV² at E = {beam_energy} GeV …")
+            fit_exp_data(q2_list, exp_file="exp_data_all.dat", beam_energy=beam_energy)
+        except Exception as e:
+            print(f"Error during fit_exp_data: {e}")
+    elif mode == "exp_data_minus_pdf_table":
+        try:
+            q2_str = input("Enter Q² values (GeV²), separated by commas: ").strip()
+            q2_list = [float(s) for s in q2_str.split(",") if s]
+            beam_energy = float(input("Enter beam (lepton) energy (GeV): "))
+            output_filename = input("Output filename (default: exp_minus_pdf.txt): ").strip()
+            if not output_filename:
+                output_filename = "exp_minus_pdf.txt"
+        except ValueError:
+            print("Invalid input. Please enter numerical values.")
+            return
+
+        try:
+            exp_data_minus_pdf_table(q2_list, beam_energy, output_filename)
+        except Exception as e:
+            print(f"Error generating residual table: {e}")
+   
 
     else:
         print("Invalid option. Please enter one of: calc, plot, table, compare_strfun, compare_exp_model_pdf, compare_exp_pdf_resonance.")

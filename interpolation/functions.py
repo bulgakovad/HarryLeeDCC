@@ -421,7 +421,7 @@ def compare_exp_model_pdf(fixed_Q2, beam_energy, num_points=200):
     # Get PDF interpolators from the PDF table.
     F1_W_interp, F2_W_interp, W_min = get_pdf_interpolators(fixed_Q2)
     # Define W grid (we use the PDF's minimum and a chosen upper bound, e.g. 2.5 GeV).
-    W_vals = np.linspace(W_min, 2.5, num_points)
+    W_vals = np.linspace(W_min, 2.6, num_points)
 
     # Arrays to store PDF-based structure functions.
     pdf_F1_vals = []   # raw F1 from PDF (via interpolation)
@@ -495,7 +495,6 @@ def compare_exp_model_pdf(fixed_Q2, beam_energy, num_points=200):
                  fmt="o", color="red", label="Experimental data")
     plt.xlabel("W (GeV)")
     plt.ylabel("dσ/dW/dQ² (10⁻³⁰ cm²/GeV³)")
-    plt.ylim(0, 0.0045)
     plt.title(f"Cross Section vs W at Q² = {fixed_Q2} GeV², E = {beam_energy} GeV")
     plt.legend()
     plt.grid(True)
@@ -547,10 +546,10 @@ def compare_exp_model_pdf(fixed_Q2, beam_energy, num_points=200):
     print(f"4-panel structure functions vs W plot saved as {filename_sf}")
 
     # Write text table with columns: Q2, W, PDF_W1, ANL_W1, PDF_W2, ANL_W2.
-    table_data = np.column_stack((np.full(W_vals.shape, fixed_Q2), W_vals, pdf_W1_vals, anl_W1_vals, pdf_W2_vals, anl_W2_vals, anl_F1_vals, anl_F2_vals, pdf_F1_vals, pdf_F2_vals))
+    table_data = np.column_stack((np.full(W_vals.shape, fixed_Q2), W_vals, pdf_W1_vals, anl_W1_vals, pdf_W2_vals, anl_W2_vals, anl_F1_vals, anl_F2_vals, pdf_F1_vals, pdf_F2_vals, pdf_cross_sections))
     table_filename = f"structure_functions_table_vs_W_Q2={fixed_Q2}_Ebeam={beam_energy}.txt"
-    header_str = "Q2\tW\tPDF_W1\tANL_W1\tPDF_W2\tANL_W2\tANL_F1\tANL_F2\tPDF_F1\tPDF_F2"
-    #np.savetxt(table_filename, table_data, fmt="%.6e", delimiter="\t", header=header_str)
+    header_str = "Q2\tW\tPDF_W1\tANL_W1\tPDF_W2\tANL_W2\tANL_F1\tANL_F2\tPDF_F1\tPDF_F2\tPDF_CrossSection"
+    np.savetxt(table_filename, table_data, fmt="%.6e", delimiter="\t", header=header_str)
     print(f"Structure functions table vs W saved as {table_filename}")
 
 
@@ -730,7 +729,7 @@ def compare_exp_model_pdf_Bjorken_x(fixed_Q2, beam_energy, num_points=200):
     table_filename = f"structure_functions_table_vs_x_Q2={fixed_Q2}_Ebeam={beam_energy}.txt"
     header_str = "Q2\tx\tW\tPDF_W1\tPDF_W2\tPDF_F1\tPDF_F2\tANL_W1\tANL_W2\tANL_F1\tANL_F2"
     #Do not save
-    #np.savetxt(table_filename, table_data, fmt="%.6e", delimiter="\t", header=header_str)
+    np.savetxt(table_filename, table_data, fmt="%.6e", delimiter="\t", header=header_str)
     print(f"Structure functions vs x table saved as {table_filename}")
 
 
@@ -1039,4 +1038,518 @@ def compare_exp_pdf_resonance(fixed_Q2, beam_energy):
     plt.savefig(filename, dpi=300)
     plt.close()
     print(f"Combined PDF + Resonance vs Experimental plot saved as {filename}")
+
+    
+    #--------------------------------------Auxillary functions fit_exp_data-----------------------------------------# 
+
+
+def AMAX1(left, right):
+    return max(left, right)
+
+# BODEK PARAMETRIZATION
+# Describes resonanses
+def bodek(what_to_show, WM,QSQ, bodek_0, bodek_1, bodek_2, bodek_3, bodek_4, bodek_5, bodek_6, bodek_7, bodek_8, bodek_9, bodek_10):
+
+    if (WM < 0.94): 
+        return 0.
+    
+    PMSQ = 0.880324
+    PM2 = 1.876512
+    PM = 0.938256
+    NRES = 4
+    NBKG = 5  
+    LSPIN = [0.,1,2,3,2]
+    # first element just to shift index by 1 (pythom -> fortran) there is no other meaning in C[0] and L[0]
+    LSPIN = [0.,1,2,3,2]
+
+    #after elas:
+    # it can be PRC parameters or not, 
+    # it does not matter bacause the code will always overwrite them
+    # Consider them as a placeholder
+    # If you decide to use them, check what it is
+
+    # constants - do not change. 
+    C = [0.,1.0741163,0.75531124,3.3506491,1.7447015,3.5102405,1.14391,
+         1.2299128,0.114735,0.621974,1.49826,0.12269,0.514898,
+         1.71184,0.1177,0.51329,1.94343,0.202702,-0.17498537,
+         0.0096701919,-0.035256748,3.5185207,-0.599937,4.7615828,0.41167589]
+
+    # mass not used
+    if (False):
+        #C[7]=bodek_0
+        #remove peak shift
+        C[10]=bodek_0
+        C[13]=bodek_1
+            
+    C[16]=bodek_2
+    #amplitude
+        
+    C[6]=bodek_3
+    C[9]=bodek_4
+    C[12]=bodek_5
+    C[15]=bodek_6
+    
+    #width
+    C[8]=bodek_7
+    C[11]=bodek_8
+    C[14]=bodek_9
+    C[17]=bodek_10
+    
+    WSQ=WM*WM
+    OMEGA=1.+(WSQ-PMSQ)/QSQ                                           
+    X=1./OMEGA                                                        
+    XPX=C[22]+C[23]*(X-C[24])**2                                      
+    PIEMSQ=(C[1]-PM)**2                                               
+
+    # added part (Misak's comment)
+    B1 = 0.0
+    B2 = 0.0
+    # 0/0
+    if (WM != C[1]):
+        B1=AMAX1(0.,(WM-C[1]))/(WM-C[1])*C[2]
+    EB1=C[3]*(WM-C[1])
+    if (EB1 <= 25.):
+        B1=B1*(1.0-math.exp(-EB1))
+        
+    if (WM != C[4]):
+        #AMAX1
+        B2=AMAX1(0.,(WM-C[4]))/(WM-C[4])*(1.-C[2])
+
+    EB2=C[5]*(WSQ-C[4]**2)                                           
+    if (EB2 <= 25.):
+        B2=B2*(1.-math.exp(-EB2))
+    BBKG=B1+B2
+    BRES=C[2]+B2                                                      
+    RESSUM=0.
+
+    for I in range(1,5,1):
+        INDEX=(I-1)*3+1+NBKG
+        #amplitude
+        RAM=C[INDEX]
+        #print(INDEX, C[INDEX])
+        if (I == 1):
+            RAM=C[INDEX]+C[18]*QSQ+C[19]*QSQ**2 
+        #IF(I.EQ.1)RAM=C(INDEX)+C(18)*QSQ+C(19)*QSQ**2
+        # mass
+        #print(INDEX+1, C[INDEX+1])
+        RMA=C[INDEX+1]
+        if (I == 3):
+            RMA=RMA*(1.+C[20]/(1.+C[21]*QSQ))
+        #IF(I.EQ.3)RMA=RMA*(1.+C(20)/(1.+C(21)*QSQ))                       A1506350
+        
+        RWD=C[INDEX+2]
+        QSTARN=math.sqrt(AMAX1(0.,((WSQ+PMSQ-PIEMSQ)/(2.*WM))**2-PMSQ))
+        QSTARO=math.sqrt(AMAX1(0.,((RMA**2-PMSQ+PIEMSQ)/(2.*RMA))**2-PIEMSQ))
+        RES = 0
+        #IF(QSTARO.LE.1.E-10)GO TO 40                                      A1506390
+        if (QSTARO < 1e-10):
+            RES = 0
+        else:
+            TERM=6.08974*QSTARN
+            TERMO=6.08974*QSTARO
+            J=2*LSPIN[I]
+            K=J+1
+            GAMRES=RWD*(TERM/TERMO)**K*(1.+TERMO**J)/(1.+TERM**J)
+            GAMRES=GAMRES/2.
+            BRWIG=GAMRES/((WM-RMA)**2+GAMRES**2)/3.1415926
+            RES=RAM*BRWIG/PM2
+            RESSUM=RESSUM+RES   
+            
+    if (what_to_show == 0):                                              
+        B=BBKG*(1.+(1.-BBKG)*XPX)+RESSUM*(1.-BRES)
+    elif(what_to_show == 1):
+        B=BBKG*(1.+(1.-BBKG)*XPX)
+    elif(what_to_show == 2):
+        B=RESSUM*(1.-BRES)
+        
+    
+    return B
+
+
+
+def fact(g2,x):
+    result=1.135
+    if (x > 0.1 and x < 0.2 and g2 < 0.5):
+        return result
+    if (x > 0.1 and g2 < 0.5):
+        return result
+    return 1.
+
+
+# background function,
+def gp_h(q0,q2, backg_0, backg_1, backg_2, backg_3, backg_4):
+    pm=0.938279
+    pi=3.14159
+    xx = q2/(2.*pm*q0)
+    gi = 2.*pm*q0
+    ww = (gi+1.642)/(q2+0.376)
+    t  = (1.-1./ww)
+  
+    wp = 0.24035*t**3+backg_1*t**4+backg_2*t**5+backg_3*t**6+backg_4*t**7
+    result=wp*ww*q2/(2.*pm*q0)*fact(q2,xx)
+    
+    return result
+   
+
+def w2h(what_to_show, gp2,gp0, backg_0, backg_1, backg_2, backg_3, backg_4, 
+        bodek_0, bodek_1, bodek_2, bodek_3, bodek_4, bodek_5, bodek_6, bodek_7, bodek_8, bodek_9, bodek_10):
+    
+    pm=0.938279
+    pi=3.14159
+    fm2=pm**2+2.*pm*gp0-gp2
+    w2h=0.
+    if (fm2 < pm**2):
+        return 0
+    wi=math.sqrt(fm2)
+    # gp_h and b
+    result=gp_h(gp0, gp2, backg_0, backg_1, backg_2, backg_3, backg_4) * bodek(what_to_show, wi, gp2, bodek_0, bodek_1, bodek_2, bodek_3, bodek_4, bodek_5, bodek_6, bodek_7, bodek_8, bodek_9, bodek_10) / gp0
+    return  result
+
+# Mott cross section
+def gmott(ei,ue):
+    g1=(1./137)**2*math.cos(ue/2.)**2
+    g2=4.*ei**2*math.sin(ue/2.)**4
+    result=g1/g2*0.389385*1000.*1000.
+    return result
+
+# Inelastic scattering on hydrogen
+def h_inel(what_to_show, ei,er,ue,
+           # background
+           backg_0, backg_1, backg_2, backg_3, backg_4,
+           # bodek params
+           bodek_0, bodek_1, bodek_2, bodek_3, bodek_4, bodek_5, bodek_6, 
+           bodek_7, bodek_8, bodek_9, bodek_10
+          ):
+    
+    pm=0.938279
+    pi=3.14159
+    r   = 0.18
+    gp0 = ei-er
+    gp2 = 4.*ei*er*math.sin(ue/2.)**2
+    gpv = math.sqrt(gp2+gp0**2)
+    # MOTT CS
+    gm  = gmott(ei,ue)
+    #W2H
+    w1h = (1.+gp0**2/gp2)/(1.+r)*w2h(what_to_show, gp2,gp0, 
+                                     # background:
+                                     backg_0, backg_1, backg_2, backg_3, backg_4, 
+                                     # bodek:
+                                     bodek_0, bodek_1, bodek_2, bodek_3, bodek_4, 
+                                     bodek_5, bodek_6, bodek_7, bodek_8, 
+                                     bodek_9, bodek_10)
+    w2  = pm**2+2.*pm*gp0-gp2
+    w = 0.
+    if (w2 < 0.):
+        w = 0.
+    else:
+        w = math.sqrt(w2)
+        
+    result = (gm*(w2h(what_to_show, gp2, gp0, backg_0, backg_1, backg_2, backg_3, backg_4,
+                      bodek_0, bodek_1, bodek_2, bodek_3, bodek_4, bodek_5, 
+                      bodek_6, bodek_7, bodek_8, bodek_9, bodek_10)+2.*math.tan(ue/2.)**2*w1h))
+
+    return result
+
+# plot background function only
+def PlotBack(q2_in, w_in, backg_0, backg_1, backg_2, backg_3, backg_4):
+    
+    #initialize beam conditions
+    ei_0   = 10.604
+    ei_1   = 0./1000.
+    ei     = ei_0  + ei_1
+    lepin = 7
+    pi=3.14159
+    
+    #W and Q2 to theta and P
+    mass_neut = 0.939565420
+    omega_lab = (w_in**2 + q2_in - mass_neut**2 ) /  (2 * mass_neut)
+    er = ei_0 - omega_lab
+    
+    uet = 2 * math.asin(math.sqrt(q2_in / (4 * er * ei_0))) *180/pi
+    
+    #BLOCK OF PARAMETERS
+    pm=0.938279
+    em=0.000511
+    alfa=1./137.
+    bt=4./3.
+    r=0.18
+
+    # NANOBARN 
+    v_measure = 1.
+    v_m = v_measure
+
+    #scattered angle range determination
+    ue=uet*pi/180.
+    
+
+    # sub_type_spec = 11.
+    
+    
+    ero = ei / (1.+2*ei/pm*math.sin(ue/2.)**2)
+    if(ero < er):
+        print('idk 1')
+        return 0
+    
+    gp0 = ei-er
+    gp2 = 4.*ei*er*math.sin(ue/2.)**2
+    gpv = math.sqrt(gp0**2+gp2)
+    w2  = pm**2+2.*pm*gp0-gp2
+    if(w2 < 0):
+        print('idk 2')
+        return 0
+    w   = math.sqrt(w2)
+    x   = gp2/2./pm/gp0
+    
+    if (x > 2.0):
+        print('idk 3')
+        return 0
+    
+    q2 = 4.0*ei*er*math.sin(ue/2.0)**2
+    epsilon=1./(1.+2.*(1.+(ei-er)**2/q2)*(math.tan(ue/2))**2)
+    gamma_t=alfa*(w2-pm**2)*er/4./q2/pm/ei/(1-epsilon)/pi**2
+    gamma_w=alfa*(w2-pm**2)*w/8./q2/pm**2/(1-epsilon)/ei**2/pi**2
+    jacob=pi*w/ei/er/pm
+    
+    
+    
+    pm=0.938279
+    pi=3.14159
+    r   = 0.18
+    gp0 = ei-er
+    gp2 = 4.*ei*er*math.sin(ue/2.)**2
+    gpv = math.sqrt(gp2+gp0**2)
+    # MOTT CS
+    gm  = gmott(ei,ue)
+    #W2H
+
+    return gp_h(gp0, gp2, backg_0, backg_1, backg_2, backg_3, backg_4);
+
+# uet is theta in deg
+# er momentum in GeV
+# the function that returns cross section for w, Q2 bin. It takes bodek parametrization parameters
+
+#pp0, pp1, pp2, pp3, pp4, pp5, pp6, pp7, pp8, pp9 ,pp10
+
+def getXSEC_fitting(what_to_show, q2_in, w_in, 
+                    # background
+                    backg_0, backg_1, backg_2, backg_3, backg_4,
+                    # bodek params
+                    bodek_0, bodek_1, bodek_2, bodek_3, bodek_4, bodek_5, bodek_6, 
+                    bodek_7, bodek_8, bodek_9, bodek_10
+                   ):
+    
+    #initialize beam conditions
+    ei_0   = 10.604
+    ei_1   = 0./1000.
+    ei     = ei_0  + ei_1
+    lepin = 7
+    pi=3.14159
+    
+    #convert W and Q2 to theta and P
+    mass_neut = 0.939565420
+    omega_lab = (w_in**2 + q2_in - mass_neut**2 ) /  (2 * mass_neut)
+    er = ei_0 - omega_lab
+    
+    uet = 2 * math.asin(math.sqrt(q2_in / (4 * er * ei_0))) *180/pi
+    
+    #constants
+    pm=0.938279
+    em=0.000511
+    alfa=1./137.
+    bt=4./3.
+    r=0.18
+
+    # NANOBARN 
+    v_measure = 1.
+    v_m = v_measure
+
+    #scattered angle range determination
+    ue=uet*pi/180.
+    
+    # sub_type_spec = 11.
+    ero = ei / (1.+2*ei/pm*math.sin(ue/2.)**2)
+    if(ero < er):
+        print('idk 1')
+        return 0
+    
+    gp0 = ei-er
+    gp2 = 4.*ei*er*math.sin(ue/2.)**2
+    gpv = math.sqrt(gp0**2+gp2)
+    w2  = pm**2+2.*pm*gp0-gp2
+    if(w2 < 0):
+        print('idk 2')
+        return 0
+    w   = math.sqrt(w2)
+    x   = gp2/2./pm/gp0
+    
+    if (x > 2.0):
+        print('idk 3')
+        return 0
+    
+    q2 = 4.0*ei*er*math.sin(ue/2.0)**2
+    epsilon=1./(1.+2.*(1.+(ei-er)**2/q2)*(math.tan(ue/2))**2)
+    gamma_t=alfa*(w2-pm**2)*er/4./q2/pm/ei/(1-epsilon)/pi**2
+    gamma_w=alfa*(w2-pm**2)*w/8./q2/pm**2/(1-epsilon)/ei**2/pi**2
+    jacob=pi*w/ei/er/pm
+    
+    #Inelastic scattering
+    cs_y_in = h_inel(what_to_show, ei,er,ue,                    
+                     # background
+                     backg_0, backg_1, backg_2, backg_3, backg_4,
+                     # bodek params
+                     bodek_0, bodek_1, bodek_2, bodek_3, bodek_4, bodek_5, bodek_6, 
+                     bodek_7, bodek_8, bodek_9, bodek_10) / v_m
+    
+    # Jacobian (theta, P - > w, Q2) and to nb
+    cs_y_in_w = round(cs_y_in*jacob/1000,10)
+    return cs_y_in_w
+
+# Wrapper for cross section function
+# Just for easier use of getXSEC_fitting. The main purpose is plotting
+def getCS(what_to_show, q2_in, w_in, isBackPass = False, isBodekPass = False, backParams = [], bodekParams = []):
+    # Number of varied params:
+    # it is hardcoded in other places (for example in input of getXSEC_fitting()), so do not change it
+    totalParamsBodek = 11
+    totalParamsBckgr = 4
+
+    # Default params. (the one submitted to PRC)
+    if (not isBackPass):
+        # PRC:
+        #print("PRC backgrd fun is used")
+        #backParams = [0.2367, 2.178, 0.898, -6.726, 3.718]
+
+        # Iterated by Valerii after PRC:
+        backParams = [0.2367, 2.185651400350511, 0.6782367867507779, -6.735990002785817, 4.163236272156371]
+
+        
+    if (not isBodekPass):
+        # PRC:
+        bodekParams = [1.5,1.711,1.94343, 1.14391, 6.21974e-01,  5.14898e-01,
+                       5.13290e-01 , 1.14735e-01, 1.22690e-01, 1.17700e-01, 2.02702e-01]
+        
+
+    if (len(backParams) < totalParamsBckgr):
+        raise Exception("backParams is not defined, make sure that you passed backParams, if isBackPass = True ")
+
+    if (len(bodekParams) < totalParamsBodek):
+        raise Exception("backParams is not defined, make sure that you passed isBodekPass, if isBodekPass = True ")
+
+    # Call XSEC function
+    return getXSEC_fitting(what_to_show, q2_in, w_in, *backParams, *bodekParams)
+
+#----------------------------------------------------------------------------------------------------------------------#
+def fit_exp_data(q2_list, exp_file="exp_data_all.dat",beam_energy=10.6):
+    """
+    For each Q² in q2_list, read exp_minus_pdf.txt (columns:
+      Q2, W, epsilon, exp_minus_pdf, stat_error, sys_error, ScaleType),
+      • Full fit (background + resonance)
+      • Background only
+      • Resonance only
+    Saves a 3×3 panel to 'fit_exp_data.png'.
+    """
+
+    # load the residual table
+    data = np.loadtxt(exp_file, delimiter=",", skiprows=1)
+    Q2_vals, W_data_all, eps_all, yexp_all, err_stat, err_sys, scale_type = data.T
+    dyexp_all = np.sqrt(err_stat**2 + err_sys**2 )
+
+    # the specific params you found for "exp minus pdf"
+    backParams = [0.2367, 2.185651400350511, 0.6782367867507779, -6.735990002785817, 4.163236272156371]
+    bodekParams = [1.5, 1.711, 1.9455061694828741, 1.1508931812039305, 0.622807570128967, 0.5140353260311096, 0.5197534788784222, 0.10792042803309153, 0.12666581366215277, 0.1179007082920964, 0.20173174661509075]
+
+    # prepare 3×3 canvas
+    fig, axes = plt.subplots(3, 3, figsize=(45, 25), squeeze=False)
+    plt.subplots_adjust(left=0.1, bottom=0.1, right=0.9, top=0.9,
+                        wspace=0.25, hspace=0.55)
+
+    # only plot up to 9 Q² values
+    for idx, q2 in enumerate(q2_list[:9]):
+        row, col = divmod(idx, 3)
+        ax = axes[row][col]
+
+        # select only points for this Q²
+        mask = np.isclose(Q2_vals, q2)
+        W_data = W_data_all[mask]
+        Y_data = yexp_all[mask]
+        dY_data = dyexp_all[mask]
+
+        # plot residual data
+        ax.errorbar(W_data, Y_data, yerr=dY_data, fmt='D', ms=5, color='red', label='exp data')
+
+        # define W grid for model curves
+        W_grid = np.linspace(1.1, 2.6, 300)
+
+        # full fit: background + resonance
+        Y_full = [getCS(0, q2, W, isBackPass=True, isBodekPass=True, backParams=backParams, bodekParams=bodekParams) for W in W_grid ]
+        ax.plot(W_grid, Y_full, color='black', linewidth=2, label='Full fit')
+
+        # background only (use PlotBack, convert to μb)
+        Y_bkg = [getCS(1, q2, W, isBackPass=True, isBodekPass=True, backParams=backParams, bodekParams=bodekParams) for W in W_grid ]
+        #ax.plot(W_grid, Y_bkg, color='orange', linestyle='--', linewidth=2, label='Background only')
+
+        # resonance only (bodek, convert to μb)
+        Y_res = [getCS(2, q2, W, isBackPass=True, isBodekPass=True, backParams=backParams, bodekParams=bodekParams) for W in W_grid ]
+        #ax.plot(W_grid, Y_res, color='blue', linestyle=':', linewidth=2, label='Resonance only')
+
+        F1i, F2i, _ = get_pdf_interpolators(q2)
+        Y_pdf = [ compute_cross_section_pdf(W, q2, beam_energy, F1i, F2i) for W in W_grid]
+        #ax.plot(W_grid, Y_pdf, color='green', linestyle='-.', linewidth=2, label='PDF prediction')
+        
+        Y_pdf_plus_res = [Y_pdf[i] + Y_res[i] for i in range(len(Y_pdf))]
+        ax.plot(W_grid, Y_pdf_plus_res, color='purple', linestyle='--', linewidth=2, label='PDF + Resonance')
+        
+        # formatting
+        ax.set_title(f"Q² = {q2:.3f} GeV²", fontsize=50, loc='right')
+        ax.set_xlabel('W (GeV)', fontsize=40)
+        ax.set_ylabel(r"$d\sigma/dWdQ^2$ (μb/GeV³)", fontsize=40)
+        ax.grid(True)
+        ax.legend(fontsize=20)
+        ax.set_xlim([1.1, 2.6])
+
+        # dynamic y‐limit based on all curves
+        Y_pdf_plus_res = [Y_pdf[i] + Y_res[i] for i in range(len(Y_pdf))]
+        ymax = max(Y_data.max(), np.nanmax(Y_full), np.nanmax(Y_pdf_plus_res))
+        ax.set_ylim([0, ymax * 1.1])
+
+    # turn off unused subplots if fewer than 9 Q²
+    for idx in range(len(q2_list), 9):
+        fig.delaxes(axes.flat[idx])
+
+    fig.savefig('fit_exp_data_PDF_plus_RES.png', bbox_inches='tight', dpi=50)
+    plt.close(fig)
+    print("Fit figure saved as fit_exp_data.png")
+
+
+def exp_data_minus_pdf_table(q2_list, beam_energy, output_filename="exp_minus_pdf.txt"):
+    """
+    For each Q² in q2_list, load the experimental RGA data,
+    subtract the PDF-based cross section at each (W,Q2) point,
+    and write a single .txt file with columns:
+      Q2, W, epsilon, (exp − PDF) xsec, stat_error, sys_error
+    """
+
+    rows = []
+    for q2 in q2_list:
+        exp_path = f"exp_data/InclusiveExpValera_Q2={q2}.dat"
+        if not os.path.isfile(exp_path):
+            raise FileNotFoundError(f"Missing experimental file: {exp_path}")
+        df = pd.read_csv(exp_path, sep=r"\s+")
+        F1i, F2i, _ = get_pdf_interpolators(q2)
+
+        for _, r in df.iterrows():
+            W   = r["W"]
+            eps = r["eps"]
+            sigma_exp = r["sigma"]     * 1e-3  # to μb
+            stat_err  = r["error"]      * 1e-3
+            sys_err   = r["sys_error"]  * 1e-3
+
+            # PDF-based cross section at this point
+            cs_pdf = compute_cross_section_pdf(W, q2, beam_energy, F1i, F2i)
+
+            rows.append([q2, W, eps, sigma_exp - cs_pdf, stat_err, sys_err, 0])
+
+    data = np.array(rows)
+    header = "Q2,W,epsilon,exp_minus_pdf,stat_error,sys_error,ScaleType"
+    np.savetxt(output_filename, data, fmt="%.6e", delimiter=",", header=header)
+    print(f"Residual table saved to {output_filename}")
 
