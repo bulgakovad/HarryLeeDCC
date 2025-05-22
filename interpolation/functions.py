@@ -1048,122 +1048,100 @@ def AMAX1(left, right):
 
 # BODEK PARAMETRIZATION
 # Describes resonanses
-def bodek(what_to_show, WM,QSQ, bodek_0, bodek_1, bodek_2, bodek_3, bodek_4, bodek_5, bodek_6, bodek_7, bodek_8, bodek_9, bodek_10):
-
-    if (WM < 0.94): 
-        return 0.
+def bodek(what_to_show, WM, QSQ,
+          a2, a1,
+          bodek_0, bodek_1, bodek_2, bodek_3, bodek_4,
+          bodek_5, bodek_6, bodek_7, bodek_8, bodek_9, bodek_10):
+    """
+    Combined background/resonance:
+      what_to_show=0 : full B_bg + B_res
+      what_to_show=1 : background only (quadratic)
+      what_to_show=2 : resonance only (old RESSUM*(1-BRES))
     
+    Background: B_bg = a2*(W-1.076)**2 + a1*(W-1.076)
+    Resonance: unchanged from before.
+    """
+    import math
+
+    if WM < 0.94:
+        return 0.0
+
+    # constants
     PMSQ = 0.880324
-    PM2 = 1.876512
-    PM = 0.938256
-    NRES = 4
-    NBKG = 5  
-    LSPIN = [0.,1,2,3,2]
-    # first element just to shift index by 1 (pythom -> fortran) there is no other meaning in C[0] and L[0]
-    LSPIN = [0.,1,2,3,2]
-
-    #after elas:
-    # it can be PRC parameters or not, 
-    # it does not matter bacause the code will always overwrite them
-    # Consider them as a placeholder
-    # If you decide to use them, check what it is
-
-    # constants - do not change. 
-    C = [0.,1.0741163,0.75531124,3.3506491,1.7447015,3.5102405,1.14391,
+    PM2  = 1.876512
+    PM   = 0.938256
+    NBKG = 5
+    # compute BRES (uses old B1/B2) and RESSUM exactly as before
+    # — we only use RESSUM*(1−BRES) for the resonance part
+    # first build C (unchanged)
+    C = [0.,
+         1.0741163,0.75531124,3.3506491,1.7447015,3.5102405,1.14391,
          1.2299128,0.114735,0.621974,1.49826,0.12269,0.514898,
-         1.71184,0.1177,0.51329,1.94343,0.202702,-0.17498537,
-         0.0096701919,-0.035256748,3.5185207,-0.599937,4.7615828,0.41167589]
+         1.71184,0.1177,0.51329,1.94343,0.202702,
+         -0.17498537,0.0096701919,-0.035256748,
+         3.5185207,-0.599937,4.7615828,0.41167589]
+    # overwrite only the resonance parameters (the bodek_* args)
+    C[6]  = bodek_3
+    C[9]  = bodek_4
+    C[12] = bodek_5
+    C[15] = bodek_6
+    C[8]  = bodek_7
+    C[11] = bodek_8
+    C[14] = bodek_9
+    C[17] = bodek_10
+    # the mass shifts
+    C[16] = bodek_2
 
-    # mass not used
-    if (False):
-        #C[7]=bodek_0
-        #remove peak shift
-        C[10]=bodek_0
-        C[13]=bodek_1
-            
-    C[16]=bodek_2
-    #amplitude
-        
-    C[6]=bodek_3
-    C[9]=bodek_4
-    C[12]=bodek_5
-    C[15]=bodek_6
-    
-    #width
-    C[8]=bodek_7
-    C[11]=bodek_8
-    C[14]=bodek_9
-    C[17]=bodek_10
-    
-    WSQ=WM*WM
-    OMEGA=1.+(WSQ-PMSQ)/QSQ                                           
-    X=1./OMEGA                                                        
-    XPX=C[22]+C[23]*(X-C[24])**2                                      
-    PIEMSQ=(C[1]-PM)**2                                               
-
-    # added part (Misak's comment)
+    WSQ   = WM*WM
+    # compute old B1/B2 for BRES
     B1 = 0.0
+    if WM != C[1]:
+        B1 = max(0., WM-C[1])/(WM-C[1])*C[2]
+    EB1 = C[3]*(WM-C[1])
+    if EB1 <= 25.:
+        B1 *= (1. - math.exp(-EB1))
     B2 = 0.0
-    # 0/0
-    if (WM != C[1]):
-        B1=AMAX1(0.,(WM-C[1]))/(WM-C[1])*C[2]
-    EB1=C[3]*(WM-C[1])
-    if (EB1 <= 25.):
-        B1=B1*(1.0-math.exp(-EB1))
-        
-    if (WM != C[4]):
-        #AMAX1
-        B2=AMAX1(0.,(WM-C[4]))/(WM-C[4])*(1.-C[2])
+    if WM != C[4]:
+        B2 = max(0., WM-C[4])/(WM-C[4])*(1.-C[2])
+    EB2 = C[5]*(WSQ - C[4]**2)
+    if EB2 <= 25.:
+        B2 *= (1. - math.exp(-EB2))
+    BBKG = B1 + B2
+    BRES = C[2] + B2
 
-    EB2=C[5]*(WSQ-C[4]**2)                                           
-    if (EB2 <= 25.):
-        B2=B2*(1.-math.exp(-EB2))
-    BBKG=B1+B2
-    BRES=C[2]+B2                                                      
-    RESSUM=0.
+    # resonance sum
+    RESSUM = 0.0
+    for I in range(1,5):
+        INDEX = (I-1)*3 + 1 + NBKG
+        RAM   = C[INDEX]
+        if I == 1:
+            RAM += C[18]*QSQ + C[19]*QSQ**2
+        RMA   = C[INDEX+1]
+        if I == 3:
+            RMA *= (1. + C[20]/(1. + C[21]*QSQ))
+        RWD   = C[INDEX+2]
+        # kinematics for resonance width
+        QSTARN = math.sqrt(max(0., ((WSQ+PMSQ-(C[1]-PM)**2)/(2*WM))**2 - PMSQ))
+        QSTARO = math.sqrt(max(0., ((RMA**2 - PMSQ + (C[1]-PM)**2)/(2*RMA))**2 - (C[1]-PM)**2))
+        if QSTARO > 1e-10:
+            TERM   = 6.08974 * QSTARN
+            TERMO  = 6.08974 * QSTARO
+            J      = 2* [0,1,2,3,2][I]
+            GAMRES = RWD*(TERM/TERMO)**(J+1)*(1.+TERMO**J)/(1.+TERM**J)/2.
+            BRWIG  = GAMRES/((WM-RMA)**2 + GAMRES**2)/math.pi
+            RESSUM += RAM*BRWIG/PM2
 
-    for I in range(1,5,1):
-        INDEX=(I-1)*3+1+NBKG
-        #amplitude
-        RAM=C[INDEX]
-        #print(INDEX, C[INDEX])
-        if (I == 1):
-            RAM=C[INDEX]+C[18]*QSQ+C[19]*QSQ**2 
-        #IF(I.EQ.1)RAM=C(INDEX)+C(18)*QSQ+C(19)*QSQ**2
-        # mass
-        #print(INDEX+1, C[INDEX+1])
-        RMA=C[INDEX+1]
-        if (I == 3):
-            RMA=RMA*(1.+C[20]/(1.+C[21]*QSQ))
-        #IF(I.EQ.3)RMA=RMA*(1.+C(20)/(1.+C(21)*QSQ))                       A1506350
-        
-        RWD=C[INDEX+2]
-        QSTARN=math.sqrt(AMAX1(0.,((WSQ+PMSQ-PIEMSQ)/(2.*WM))**2-PMSQ))
-        QSTARO=math.sqrt(AMAX1(0.,((RMA**2-PMSQ+PIEMSQ)/(2.*RMA))**2-PIEMSQ))
-        RES = 0
-        #IF(QSTARO.LE.1.E-10)GO TO 40                                      A1506390
-        if (QSTARO < 1e-10):
-            RES = 0
-        else:
-            TERM=6.08974*QSTARN
-            TERMO=6.08974*QSTARO
-            J=2*LSPIN[I]
-            K=J+1
-            GAMRES=RWD*(TERM/TERMO)**K*(1.+TERMO**J)/(1.+TERM**J)
-            GAMRES=GAMRES/2.
-            BRWIG=GAMRES/((WM-RMA)**2+GAMRES**2)/3.1415926
-            RES=RAM*BRWIG/PM2
-            RESSUM=RESSUM+RES   
-            
-    if (what_to_show == 0):                                              
-        B=BBKG*(1.+(1.-BBKG)*XPX)+RESSUM*(1.-BRES)
-    elif(what_to_show == 1):
-        B=BBKG*(1.+(1.-BBKG)*XPX)
-    elif(what_to_show == 2):
-        B=RESSUM*(1.-BRES)
-        
-    
-    return B
+    # build our two pieces
+    B_res = RESSUM * (1. - BRES)
+    B_bg  = a2*(WM - 1.076)**2 + a1*(WM - 1.076)
+
+    if what_to_show == 0:
+        return B_bg + B_res
+    elif what_to_show == 1:
+        return B_bg
+    elif what_to_show == 2:
+        return B_res
+
 
 
 
@@ -1176,34 +1154,45 @@ def fact(g2,x):
     return 1.
 
 
-# background function,
-def gp_h(q0,q2, backg_0, backg_1, backg_2, backg_3, backg_4):
-    pm=0.938279
-    pi=3.14159
-    xx = q2/(2.*pm*q0)
-    gi = 2.*pm*q0
-    ww = (gi+1.642)/(q2+0.376)
+def gp_h(q0, q2, a1, a2):
+    """
+    Background structure-function contribution parameterized as
+      a1*(W - 1.076) + a2*(W - 1.076)^2
+    then converted to the usual gp_h form.
+    """
+    pm = 0.938279
+    # Compute kinematic W from q0, q2
+    W2 = pm**2 + 2.0 * pm * q0 - q2
+    if W2 <= 0:
+        return 0.0
+    W = math.sqrt(W2)
+    dW = W - 1.076
+    # Now convert to structure-function form
+    xx = q2 / (2.0 * pm * q0)
+    gi = 2.0 * pm * q0
+    ww = (gi + 1.642) / (q2 + 0.376)
     t  = (1.-1./ww)
-  
-    wp = 0.24035*t**3+backg_1*t**4+backg_2*t**5+backg_3*t**6+backg_4*t**7
-    result=wp*ww*q2/(2.*pm*q0)*fact(q2,xx)
+    wp = 0.24035*t**3+a1*t**4+a2*t**5
     
-    return result
+    return wp * ww * q2 / (2.0 * pm * q0) * fact(q2, xx)
    
 
-def w2h(what_to_show, gp2,gp0, backg_0, backg_1, backg_2, backg_3, backg_4, 
-        bodek_0, bodek_1, bodek_2, bodek_3, bodek_4, bodek_5, bodek_6, bodek_7, bodek_8, bodek_9, bodek_10):
-    
-    pm=0.938279
-    pi=3.14159
-    fm2=pm**2+2.*pm*gp0-gp2
-    w2h=0.
-    if (fm2 < pm**2):
-        return 0
-    wi=math.sqrt(fm2)
-    # gp_h and b
-    result=gp_h(gp0, gp2, backg_0, backg_1, backg_2, backg_3, backg_4) * bodek(what_to_show, wi, gp2, bodek_0, bodek_1, bodek_2, bodek_3, bodek_4, bodek_5, bodek_6, bodek_7, bodek_8, bodek_9, bodek_10) / gp0
-    return  result
+def w2h(what_to_show, gp2, gp0,
+        a1, a2,
+        bodek_0, bodek_1, bodek_2, bodek_3, bodek_4,
+        bodek_5, bodek_6, bodek_7, bodek_8, bodek_9, bodek_10):
+    pm = 0.938279
+    WSQ_term = pm**2 + 2.0 * pm * gp0 - gp2
+    if WSQ_term <= pm**2:
+        return 0.0
+    wi = math.sqrt(WSQ_term)
+    # background term via new gp_h
+    bg_term = gp_h(gp0, gp2, a1, a2)
+    # resonance term via unchanged bodek
+    res_term = bodek(what_to_show, wi, gp2, a2, a1,
+                     bodek_0, bodek_1, bodek_2, bodek_3, bodek_4,
+                     bodek_5, bodek_6, bodek_7, bodek_8, bodek_9, bodek_10)
+    return bg_term * res_term / gp0
 
 # Mott cross section
 def gmott(ei,ue):
@@ -1213,116 +1202,33 @@ def gmott(ei,ue):
     return result
 
 # Inelastic scattering on hydrogen
-def h_inel(what_to_show, ei,er,ue,
-           # background
-           backg_0, backg_1, backg_2, backg_3, backg_4,
-           # bodek params
-           bodek_0, bodek_1, bodek_2, bodek_3, bodek_4, bodek_5, bodek_6, 
-           bodek_7, bodek_8, bodek_9, bodek_10
-          ):
-    
-    pm=0.938279
-    pi=3.14159
-    r   = 0.18
-    gp0 = ei-er
-    gp2 = 4.*ei*er*math.sin(ue/2.)**2
-    gpv = math.sqrt(gp2+gp0**2)
-    # MOTT CS
-    gm  = gmott(ei,ue)
-    #W2H
-    w1h = (1.+gp0**2/gp2)/(1.+r)*w2h(what_to_show, gp2,gp0, 
-                                     # background:
-                                     backg_0, backg_1, backg_2, backg_3, backg_4, 
-                                     # bodek:
-                                     bodek_0, bodek_1, bodek_2, bodek_3, bodek_4, 
-                                     bodek_5, bodek_6, bodek_7, bodek_8, 
-                                     bodek_9, bodek_10)
-    w2  = pm**2+2.*pm*gp0-gp2
-    w = 0.
-    if (w2 < 0.):
-        w = 0.
-    else:
-        w = math.sqrt(w2)
-        
-    result = (gm*(w2h(what_to_show, gp2, gp0, backg_0, backg_1, backg_2, backg_3, backg_4,
-                      bodek_0, bodek_1, bodek_2, bodek_3, bodek_4, bodek_5, 
-                      bodek_6, bodek_7, bodek_8, bodek_9, bodek_10)+2.*math.tan(ue/2.)**2*w1h))
-
+def h_inel(what_to_show, ei, er, ue,
+           a1, a2,
+           bodek_0, bodek_1, bodek_2, bodek_3, bodek_4,
+           bodek_5, bodek_6, bodek_7, bodek_8, bodek_9, bodek_10):
+    pm = 0.938279
+    r = 0.18
+    # Mott
+    gm = gmott(ei, ue)
+    # Compute w2h and w1h from updated w2h
+    w2h_full = w2h(what_to_show, 4.*ei*er*math.sin(ue/2.)**2, ei-er,
+                   a1, a2,
+                   bodek_0, bodek_1, bodek_2, bodek_3, bodek_4,
+                   bodek_5, bodek_6, bodek_7, bodek_8, bodek_9, bodek_10)
+    w1h = (1.0 + (ei-er)**2/(4.*ei*er*math.sin(ue/2.)**2)) / (1.0 + r) * w2h_full
+    result = gm * (w2h_full + 2.0 * math.tan(ue/2.0)**2 * w1h)
     return result
 
 # plot background function only
-def PlotBack(q2_in, w_in, backg_0, backg_1, backg_2, backg_3, backg_4):
-    
-    #initialize beam conditions
-    ei_0   = 10.604
-    ei_1   = 0./1000.
-    ei     = ei_0  + ei_1
-    lepin = 7
-    pi=3.14159
-    
-    #W and Q2 to theta and P
-    mass_neut = 0.939565420
-    omega_lab = (w_in**2 + q2_in - mass_neut**2 ) /  (2 * mass_neut)
-    er = ei_0 - omega_lab
-    
-    uet = 2 * math.asin(math.sqrt(q2_in / (4 * er * ei_0))) *180/pi
-    
-    #BLOCK OF PARAMETERS
-    pm=0.938279
-    em=0.000511
-    alfa=1./137.
-    bt=4./3.
-    r=0.18
-
-    # NANOBARN 
-    v_measure = 1.
-    v_m = v_measure
-
-    #scattered angle range determination
-    ue=uet*pi/180.
-    
-
-    # sub_type_spec = 11.
-    
-    
-    ero = ei / (1.+2*ei/pm*math.sin(ue/2.)**2)
-    if(ero < er):
-        print('idk 1')
-        return 0
-    
-    gp0 = ei-er
-    gp2 = 4.*ei*er*math.sin(ue/2.)**2
-    gpv = math.sqrt(gp0**2+gp2)
-    w2  = pm**2+2.*pm*gp0-gp2
-    if(w2 < 0):
-        print('idk 2')
-        return 0
-    w   = math.sqrt(w2)
-    x   = gp2/2./pm/gp0
-    
-    if (x > 2.0):
-        print('idk 3')
-        return 0
-    
-    q2 = 4.0*ei*er*math.sin(ue/2.0)**2
-    epsilon=1./(1.+2.*(1.+(ei-er)**2/q2)*(math.tan(ue/2))**2)
-    gamma_t=alfa*(w2-pm**2)*er/4./q2/pm/ei/(1-epsilon)/pi**2
-    gamma_w=alfa*(w2-pm**2)*w/8./q2/pm**2/(1-epsilon)/ei**2/pi**2
-    jacob=pi*w/ei/er/pm
-    
-    
-    
-    pm=0.938279
-    pi=3.14159
-    r   = 0.18
-    gp0 = ei-er
-    gp2 = 4.*ei*er*math.sin(ue/2.)**2
-    gpv = math.sqrt(gp2+gp0**2)
-    # MOTT CS
-    gm  = gmott(ei,ue)
-    #W2H
-
-    return gp_h(gp0, gp2, backg_0, backg_1, backg_2, backg_3, backg_4);
+def PlotBack(q2_in, w_in, a1, a2):
+    # convert (q2_in, w_in) to scattering kinematics
+    # then call gp_h directly
+    # here we only need gp_h(q0=q0, q2=q2_in, a1,a2)
+    # find q0 from w_in, q2_in via inversion: energy transfer
+    pm = 0.938279
+    # placeholder beam = 10.604 GeV
+    q0 = (w_in**2 + q2_in - pm**2) / (2.0 * pm)
+    return gp_h(q0, q2_in, a1, a2)
 
 # uet is theta in deg
 # er momentum in GeV
@@ -1330,13 +1236,10 @@ def PlotBack(q2_in, w_in, backg_0, backg_1, backg_2, backg_3, backg_4):
 
 #pp0, pp1, pp2, pp3, pp4, pp5, pp6, pp7, pp8, pp9 ,pp10
 
-def getXSEC_fitting(what_to_show, q2_in, w_in, 
-                    # background
-                    backg_0, backg_1, backg_2, backg_3, backg_4,
-                    # bodek params
-                    bodek_0, bodek_1, bodek_2, bodek_3, bodek_4, bodek_5, bodek_6, 
-                    bodek_7, bodek_8, bodek_9, bodek_10
-                   ):
+def getXSEC_fitting(what_to_show, q2_in, w_in,
+                    a1, a2,
+                    bodek_0, bodek_1, bodek_2, bodek_3, bodek_4,
+                    bodek_5, bodek_6, bodek_7, bodek_8, bodek_9, bodek_10):
     
     #initialize beam conditions
     ei_0   = 10.604
@@ -1393,163 +1296,238 @@ def getXSEC_fitting(what_to_show, q2_in, w_in,
     jacob=pi*w/ei/er/pm
     
     #Inelastic scattering
-    cs_y_in = h_inel(what_to_show, ei,er,ue,                    
-                     # background
-                     backg_0, backg_1, backg_2, backg_3, backg_4,
-                     # bodek params
-                     bodek_0, bodek_1, bodek_2, bodek_3, bodek_4, bodek_5, bodek_6, 
-                     bodek_7, bodek_8, bodek_9, bodek_10) / v_m
-    
-    # Jacobian (theta, P - > w, Q2) and to nb
-    cs_y_in_w = round(cs_y_in*jacob/1000,10)
-    return cs_y_in_w
+    cs = h_inel(what_to_show, ei, er, ue,
+                a1, a2,
+                bodek_0, bodek_1, bodek_2, bodek_3, bodek_4,
+                bodek_5, bodek_6, bodek_7, bodek_8, bodek_9, bodek_10)
+    return round(cs * jacob/1000,10)
 
 # Wrapper for cross section function
 # Just for easier use of getXSEC_fitting. The main purpose is plotting
-def getCS(what_to_show, q2_in, w_in, isBackPass = False, isBodekPass = False, backParams = [], bodekParams = []):
-    # Number of varied params:
-    # it is hardcoded in other places (for example in input of getXSEC_fitting()), so do not change it
-    totalParamsBodek = 11
-    totalParamsBckgr = 4
+def getCS(what_to_show, q2_in, w_in,
+          isBackPass=False, isBodekPass=False,
+          backParams=None, bodekParams=None):
+    """
+    Wrapper for the two‑parameter background + 11‑parameter resonance cross section.
 
-    # Default params. (the one submitted to PRC)
-    if (not isBackPass):
-        # PRC:
-        #print("PRC backgrd fun is used")
-        #backParams = [0.2367, 2.178, 0.898, -6.726, 3.718]
+    what_to_show: 0=full, 1=background only, 2=resonance only
+    q2_in, w_in : kinematics
+    backParams : [a1, a2]
+    bodekParams: [pp0…pp10]
+    """
+    # default resonance params (iteration‑3)
+    default_bodek = [1.5, 1.711,1.94343,1.14391,0.621974,0.514898,0.513290,0.114735,0.122690,0.117700,0.202702]
+    # default background params
+    default_back = [0.2367, -0.0375943454827298]
 
-        # Iterated by Valerii after PRC:
-        backParams = [0.2367, 2.185651400350511, 0.6782367867507779, -6.735990002785817, 4.163236272156371]
+    if backParams is None:
+        backParams = default_back.copy()
+    if bodekParams is None:
+        bodekParams = default_bodek.copy()
 
-        
-    if (not isBodekPass):
-        # PRC:
-        bodekParams = [1.5,1.711,1.94343, 1.14391, 6.21974e-01,  5.14898e-01,
-                       5.13290e-01 , 1.14735e-01, 1.22690e-01, 1.17700e-01, 2.02702e-01]
-        
+    if len(backParams) != 2:
+        raise ValueError("backParams must contain exactly 2 elements: [a1, a2]")
+    if len(bodekParams) != 11:
+        raise ValueError("bodekParams must contain exactly 11 elements (pp0…pp10)")
 
-    if (len(backParams) < totalParamsBckgr):
-        raise Exception("backParams is not defined, make sure that you passed backParams, if isBackPass = True ")
-
-    if (len(bodekParams) < totalParamsBodek):
-        raise Exception("backParams is not defined, make sure that you passed isBodekPass, if isBodekPass = True ")
-
-    # Call XSEC function
-    return getXSEC_fitting(what_to_show, q2_in, w_in, *backParams, *bodekParams)
+    # Delegate to the core fitting routine
+    return getXSEC_fitting(
+        what_to_show,
+        q2_in,
+        w_in,
+        # background a1, a2
+        backParams[0], backParams[1],
+        # resonance params
+        *bodekParams
+    )
 
 #----------------------------------------------------------------------------------------------------------------------#
-def fit_exp_data(q2_list, exp_file="exp_data_all.dat",beam_energy=10.6):
+def fit_exp_data(q2_list, beam_energy, exp_file="exp_data_all.dat", output_png="fit_exp_data.png"):
     """
-    For each Q² in q2_list, read exp_minus_pdf.txt (columns:
-      Q2, W, epsilon, exp_minus_pdf, stat_error, sys_error, ScaleType),
-      • Full fit (background + resonance)
+    For each Q² in q2_list, read residuals from exp_file (cols:
+      Q2, W, eps, exp_minus_pdf, stat_error, sys_error, ScaleType),
+    plot the residual data and overlay:
+      • Full fit (background + resonances)
       • Background only
       • Resonance only
-    Saves a 3×3 panel to 'fit_exp_data.png'.
+      • (optionally PDF + resonance)
+    on a dynamically‐sized grid so there are no empty slots.
     """
 
-    # load the residual table
+    # --- load parameter tables ---
+    def load_param_file(path, expected_count):
+        param_dict = {}
+        with open(path) as f:
+            for line in f:
+                if line.startswith("#") or not line.strip():
+                    continue
+                tokens = [float(x.strip()) for x in line.strip().split(",")]
+                q2 = tokens[0]
+                params = tokens[1:]
+                if len(params) != expected_count:
+                    raise ValueError(f"Expected {expected_count} parameters, got {len(params)} in {path}")
+                param_dict[q2] = params
+        return param_dict
+
+    bg_params_dict = load_param_file("bg_params.dat", 2)
+    res_params_dict = load_param_file("res_params.dat", 11)
+
+    # --- load your residual table ---
     data = np.loadtxt(exp_file, delimiter=",", skiprows=1)
-    Q2_vals, W_data_all, eps_all, yexp_all, err_stat, err_sys, scale_type = data.T
-    dyexp_all = np.sqrt(err_stat**2 + err_sys**2 )
+    Q2_vals, W_all, _, yexp_all, err_stat, err_sys, _ = data.T
+    dy = np.sqrt(err_stat**2 + err_sys**2)
 
-    # the specific params you found for "exp minus pdf"
-    backParams = [0.2367, 2.185651400350511, 0.6782367867507779, -6.735990002785817, 4.163236272156371]
-    bodekParams = [1.5, 1.711, 1.9455061694828741, 1.1508931812039305, 0.622807570128967, 0.5140353260311096, 0.5197534788784222, 0.10792042803309153, 0.12666581366215277, 0.1179007082920964, 0.20173174661509075]
+    # --- dynamic grid size ---
+    n = len(q2_list)
+    if n == 0:
+        raise ValueError("Need at least one Q² to plot.")
+    ncols = math.ceil(math.sqrt(n))
+    nrows = math.ceil(n / ncols)
 
-    # prepare 3×3 canvas
-    fig, axes = plt.subplots(3, 3, figsize=(45, 25), squeeze=False)
-    plt.subplots_adjust(left=0.1, bottom=0.1, right=0.9, top=0.9,
-                        wspace=0.25, hspace=0.55)
+    fig, axes = plt.subplots(nrows, ncols,
+                             figsize=(5*ncols, 4*nrows),
+                             squeeze=False)
+    plt.subplots_adjust(wspace=0.3, hspace=0.4)
 
-    # only plot up to 9 Q² values
-    for idx, q2 in enumerate(q2_list[:9]):
-        row, col = divmod(idx, 3)
+    # --- loop panels ---
+    for idx, q2 in enumerate(q2_list):
+        r, c = divmod(idx, ncols)
+        ax = axes[r][c]
+
+        # retrieve parameters
+        if q2 not in bg_params_dict or q2 not in res_params_dict:
+            print(f"Skipping Q² = {q2:.3f}: parameters not found.")
+            continue
+        backParams = bg_params_dict[q2]
+        bodekParams = res_params_dict[q2]
+
+        # select this Q²
+        mask = np.isclose(Q2_vals, q2)
+        Wd, Yd, dY = W_all[mask], yexp_all[mask], dy[mask]
+
+        # data
+        ax.errorbar(Wd, Yd, yerr=dY, fmt='D', ms=5, color='red', label='Exp data')
+
+        # common W grid
+        Wg = np.linspace(1.15, 2.2, 300)
+
+        # fit components
+        Yfull = [getCS(0, q2, W, True, True, backParams, bodekParams) for W in Wg]
+        Ybkg  = [getCS(1, q2, W, True, True, backParams, bodekParams) for W in Wg]
+        Yres  = [getCS(2, q2, W, True, True, backParams, bodekParams) for W in Wg]
+
+        ax.plot(Wg, Yfull, label='Full fit', color='black', lw=2)
+        ax.plot(Wg, Ybkg,  label='Background', linestyle='--', color='orange')
+        ax.plot(Wg, Yres,  label='Resonance', linestyle=':', color='blue')
+
+        # optional: PDF + resonance
+        F1i, F2i, _ = get_pdf_interpolators(q2)
+        Ypdf = [compute_cross_section_pdf(W, q2, beam_energy, F1i, F2i) for W in Wg]
+        Ypr = np.array(Ypdf)  # or add Yres if needed
+        ax.plot(Wg, Ypr, label='PDF ONLY', linestyle='-.', color='green')
+
+        # formatting
+        ax.set_title(f"Q² = {q2:.3f} GeV²")
+        ax.set_xlabel("W (GeV)")
+        ax.set_ylabel(r"$d\sigma/dW/dQ^2$ (μb/GeV³)")
+        ax.set_xlim(1.1, 2.6)
+        ymax = max(Yd.max(), np.nanmax(Yfull), np.nanmax(Ypr))
+        ax.set_ylim(0, ymax*1.1)
+        ax.grid(True)
+        ax.legend(fontsize="small")
+
+    # turn off unused panels
+    for empty in range(n, nrows*ncols):
+        fig.delaxes(axes.flat[empty])
+
+    fig.tight_layout()
+    fig.savefig(output_png, dpi=150)
+    plt.close(fig)
+    print(f"Fit figure saved as {output_png}")
+
+
+def exp_minus_resonance(q2_list, beam_energy, output_png="exp_minus_resonance.png"):
+    """
+    For each Q² in q2_list:
+      - Load RGA experimental data.
+      - Load resonance prediction (mean + std).
+      - Subtract resonance mean from the experimental cross sections.
+      - Plot on a dynamic grid (near‐square) canvas:
+          • Original exp data with error bars (red)
+          • Resonance mean ± std band (blue)
+          • Residual (exp − resonance mean) with same error bars (purple)
+    Saves figure as output_png.
+    """
+    # how many panels?
+    n = len(q2_list)
+    if n == 0:
+        raise ValueError("Need at least one Q²")
+    # choose a near-square grid
+    ncols = math.ceil(math.sqrt(n))
+    nrows = math.ceil(n / ncols)
+
+    fig, axes = plt.subplots(nrows, ncols,
+                             figsize=(4*ncols, 3*nrows),
+                             squeeze=False)
+    plt.subplots_adjust(wspace=0.3, hspace=0.4)
+
+    for idx, q2 in enumerate(q2_list):
+        row, col = divmod(idx, ncols)
         ax = axes[row][col]
 
-        # select only points for this Q²
-        mask = np.isclose(Q2_vals, q2)
-        W_data = W_data_all[mask]
-        Y_data = yexp_all[mask]
-        dY_data = dyexp_all[mask]
+        # 1) Exp data
+        exp_file = f"exp_data/InclusiveExpValera_Q2={q2}.dat"
+        df = pd.read_csv(exp_file, sep=r'\s+')
+        W_exp     = df["W"].values
+        sigma_exp = df["sigma"].values * 1e-3
+        sigma_err = np.sqrt(df["error"]**2 + df["sys_error"]**2) * 1e-3
 
-        # plot residual data
-        ax.errorbar(W_data, Y_data, yerr=dY_data, fmt='D', ms=5, color='red', label='exp data')
+        # 2) Resonance
+        res_file = f"resonance_contributions/sum_res_Q2={q2}.dat"
+        try:
+            res_data = np.loadtxt(res_file, skiprows=1)
+        except:
+            res_data = np.loadtxt(res_file)
+        W_res    = res_data[:, 0]
+        res_mean = res_data[:, -2] * 1e-3
+        res_std  = res_data[:, -1] * 1e-3
 
-        # define W grid for model curves
-        W_grid = np.linspace(1.1, 2.6, 300)
+        # interp to exp W
+        res_interp = interp1d(W_res, res_mean, kind='linear',
+                              bounds_error=False, fill_value=np.nan)
+        res_at_exp = res_interp(W_exp)
 
-        # full fit: background + resonance
-        Y_full = [getCS(0, q2, W, isBackPass=True, isBodekPass=True, backParams=backParams, bodekParams=bodekParams) for W in W_grid ]
-        ax.plot(W_grid, Y_full, color='black', linewidth=2, label='Full fit')
+        # residual
+        residual = sigma_exp - res_at_exp
 
-        # background only (use PlotBack, convert to μb)
-        Y_bkg = [getCS(1, q2, W, isBackPass=True, isBodekPass=True, backParams=backParams, bodekParams=bodekParams) for W in W_grid ]
-        #ax.plot(W_grid, Y_bkg, color='orange', linestyle='--', linewidth=2, label='Background only')
+        # plot experiment
+        ax.errorbar(W_exp, sigma_exp, yerr=sigma_err,
+                    fmt='o', ms=2, color='red', label='Experiment')
 
-        # resonance only (bodek, convert to μb)
-        Y_res = [getCS(2, q2, W, isBackPass=True, isBodekPass=True, backParams=backParams, bodekParams=bodekParams) for W in W_grid ]
-        #ax.plot(W_grid, Y_res, color='blue', linestyle=':', linewidth=2, label='Resonance only')
+        # resonance band + mean
+        ax.fill_between(W_res,
+                        res_mean - res_std,
+                        res_mean + res_std,
+                        color='blue', alpha=0.2,
+                        label='Resonance ±1σ')
+        ax.plot(W_res, res_mean, '-', color='blue', lw=2)
 
-        F1i, F2i, _ = get_pdf_interpolators(q2)
-        Y_pdf = [ compute_cross_section_pdf(W, q2, beam_energy, F1i, F2i) for W in W_grid]
-        #ax.plot(W_grid, Y_pdf, color='green', linestyle='-.', linewidth=2, label='PDF prediction')
-        
-        Y_pdf_plus_res = [Y_pdf[i] + Y_res[i] for i in range(len(Y_pdf))]
-        ax.plot(W_grid, Y_pdf_plus_res, color='purple', linestyle='--', linewidth=2, label='PDF + Resonance')
-        
-        # formatting
-        ax.set_title(f"Q² = {q2:.3f} GeV²", fontsize=50, loc='right')
-        ax.set_xlabel('W (GeV)', fontsize=40)
-        ax.set_ylabel(r"$d\sigma/dWdQ^2$ (μb/GeV³)", fontsize=40)
+        # residual
+        ax.errorbar(W_exp, residual, yerr=sigma_err,
+                    fmt='s', ms=2, color='green', label='Exp – Resonance')
+
+        ax.set_title(f"Q² = {q2:.3f} GeV²")
+        ax.set_xlabel("W (GeV)")
+        ax.set_ylabel(r"$d\sigma/dW/dQ^2$ (μb/GeV³)")
         ax.grid(True)
-        ax.legend(fontsize=20)
-        ax.set_xlim([1.1, 2.6])
+        ax.legend(fontsize="small")
+        ax.set_xlim(W_res.min(), W_res.max()*1.05)
 
-        # dynamic y‐limit based on all curves
-        Y_pdf_plus_res = [Y_pdf[i] + Y_res[i] for i in range(len(Y_pdf))]
-        ymax = max(Y_data.max(), np.nanmax(Y_full), np.nanmax(Y_pdf_plus_res))
-        ax.set_ylim([0, ymax * 1.1])
+    # turn off any unused axes
+    for empty_idx in range(n, nrows*ncols):
+        fig.delaxes(axes.flat[empty_idx])
 
-    # turn off unused subplots if fewer than 9 Q²
-    for idx in range(len(q2_list), 9):
-        fig.delaxes(axes.flat[idx])
-
-    fig.savefig('fit_exp_data_PDF_plus_RES.png', bbox_inches='tight', dpi=50)
+    fig.tight_layout()
+    fig.savefig(output_png, dpi=300)
     plt.close(fig)
-    print("Fit figure saved as fit_exp_data.png")
-
-
-def exp_data_minus_pdf_table(q2_list, beam_energy, output_filename="exp_minus_pdf.txt"):
-    """
-    For each Q² in q2_list, load the experimental RGA data,
-    subtract the PDF-based cross section at each (W,Q2) point,
-    and write a single .txt file with columns:
-      Q2, W, epsilon, (exp − PDF) xsec, stat_error, sys_error
-    """
-
-    rows = []
-    for q2 in q2_list:
-        exp_path = f"exp_data/InclusiveExpValera_Q2={q2}.dat"
-        if not os.path.isfile(exp_path):
-            raise FileNotFoundError(f"Missing experimental file: {exp_path}")
-        df = pd.read_csv(exp_path, sep=r"\s+")
-        F1i, F2i, _ = get_pdf_interpolators(q2)
-
-        for _, r in df.iterrows():
-            W   = r["W"]
-            eps = r["eps"]
-            sigma_exp = r["sigma"]     * 1e-3  # to μb
-            stat_err  = r["error"]      * 1e-3
-            sys_err   = r["sys_error"]  * 1e-3
-
-            # PDF-based cross section at this point
-            cs_pdf = compute_cross_section_pdf(W, q2, beam_energy, F1i, F2i)
-
-            rows.append([q2, W, eps, sigma_exp - cs_pdf, stat_err, sys_err, 0])
-
-    data = np.array(rows)
-    header = "Q2,W,epsilon,exp_minus_pdf,stat_error,sys_error,ScaleType"
-    np.savetxt(output_filename, data, fmt="%.6e", delimiter=",", header=header)
-    print(f"Residual table saved to {output_filename}")
-
+    print(f"exp_minus_resonance plot saved as {output_png}")

@@ -1,29 +1,26 @@
-# Fitting background:
-# the procedure starts with fitting background:
-
 import ROOT
 from functions import getXSEC_fitting
 import math
 
 def mincalc(pp):
     chi2 = 0
-    with open('exp_minus_pdf.txt') as ff:
+    with open('exp_data_9699.dat') as ff:
         ff.readline()
         for line in ff:
             xx,yy, eps, yexp, dyexp_1, dyexp_2, dyexp_3 = [float(vv) for vv in line.strip().split(',')]
-            dyexp = math.sqrt(dyexp_1**2 + dyexp_2**2 + dyexp_3**2)
+            dyexp = math.sqrt(dyexp_1**2 + dyexp_2**2 )
 
             # PRC:
-            # We fit onnly back so, resonanse params stay the same
-            bg_params_exp_minus_pdf = [0.2367, -0.0375943454827298, 4.968682500440749, -4.2722561482930175, -12.8657473408563]
-            ytheory = getXSEC_fitting(xx,yy, *bg_params_exp_minus_pdf, pp[0], pp[1], pp[2], pp[3], pp[4], pp[5], pp[6], pp[7], pp[8], pp[9], pp[10])
+            # We fit only res  so, bg params stay the same
+            bg_params = [1.0000009536745438, -0.9952316284179688]
+            ytheory = getXSEC_fitting(0, xx,yy, *bg_params, pp[0], pp[1], pp[2], pp[3], pp[4], pp[5], pp[6], pp[7], pp[8], pp[9], pp[10])
             
 
             chi2 += (yexp-ytheory)**2/dyexp**2
         return chi2
 
 # start parameters
-pp= [1.5,1.711,1.94343, 1.14391, 6.21974e-01,  5.14898e-01, 5.13290e-01 , 1.14735e-01, 1.22690e-01, 1.17700e-01, 2.02702e-01]
+pp= [1.5, 1.711,1.94343,1.14391,0.621974,0.514898,0.513290,0.114735,0.122690,0.117700,0.202702]
 print(mincalc(pp))
 
 
@@ -38,8 +35,7 @@ fh = ROOT.Math.Functor(mincalc, 11)
 minimum.SetFunction(fh)
 
 
-p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11 = [1.5,1.711,1.94343, 1.14391, 6.21974e-01,  5.14898e-01,
-                                                5.13290e-01 , 1.14735e-01, 1.22690e-01, 1.17700e-01, 2.02702e-01]
+p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11 = pp[0], pp[1], pp[2], pp[3], pp[4], pp[5], pp[6], pp[7], pp[8], pp[9], pp[10]
 
 minimum.SetVariable(0, "p1", p1, 0.001)
 minimum.SetVariable(1, "p2", p2, 0.001)

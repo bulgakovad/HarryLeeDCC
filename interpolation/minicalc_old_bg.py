@@ -15,14 +15,15 @@ def mincalc(pp):
 
             # PRC:
             # We fit onnly back so, resonanse params stay the same
-            bodekParams = [1.5, 1.711, 1.8480749999978037, 1.1439502360264717, 19.360431074996903, 0.5149462924759121, 0.5252228835731393, 0.11472502620982951, 0.9251355800507702, 0.11767418259186742, 0.2026970464482057] 
+            bodekParams = [1.5,1.711,1.94343, 1.14391, 6.21974e-01,  5.14898e-01,
+                           5.13290e-01 , 1.14735e-01, 1.22690e-01, 1.17700e-01, 2.02702e-01]
         
-            ytheory = getXSEC_fitting(0, xx,yy, pp[0], pp[1], *bodekParams)
+            ytheory = getXSEC_fitting(0, xx,yy, pp[0], pp[1], pp[2], pp[3], pp[4], *bodekParams)
             chi2 += (yexp-ytheory)**2/dyexp**2
         return chi2
 
 # start parameters
-pp=[1.0000009536745438, -0.9952316284179688]
+pp=[0.2367, 2.178, 0.898, -6.726, 3.718]
 print(mincalc(pp))
 
 
@@ -33,20 +34,19 @@ minimum.SetMaxIterations(10000)
 minimum.SetTolerance(0.0001)
 minimum.SetPrintLevel(1)
 
-fh = ROOT.Math.Functor(mincalc, 2)
+fh = ROOT.Math.Functor(mincalc, 5)
 minimum.SetFunction(fh)
 
 
-p1, p2 = pp[0], pp[1]
+p1, p2, p3, p4, p5 = [0.2367, 2.178, 0.898, -6.726, 3.718]
 
 minimum.SetVariable(0, "p1", p1, 0.00001)
 minimum.SetVariable(1, "p2", p2, 0.00001)
-
+minimum.SetVariable(2, "p3", p3, 0.00001)
+minimum.SetVariable(3, "p4", p4, 0.00001)
+minimum.SetVariable(4, "p5", p5, 0.00001)
 
 minimum.Minimize()
 
-for i in range(2):
+for i in range(5):
  print(minimum.X()[i], end = ', ')
-
-
-
