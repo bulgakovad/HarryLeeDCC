@@ -6,9 +6,12 @@ from functions import (
     compare_exp_model_pdf,
     compare_exp_model_pdf_Bjorken_x,
     compare_exp_model_pdf_Nachtmann_xi,
+    compare_f12_strfun,
     compare_exp_pdf_resonance,
-    fit_exp_data,
-    exp_minus_resonance
+    fit_exp_data_individual,
+    fit_exp_data_global,
+    anl_struct_func_xsecs,
+    plot_xsect_omega_energy
     )
 
 def main():
@@ -20,10 +23,13 @@ def main():
       'compare_exp_model_pdf',
       'compare_exp_pdf_resonance'.
     For the comparison functions, you may now enter multiple Q² values separated by commas.
-     Available Q2: 2.774,3.244,3.793,4.435,5.187,6.065,7.093,8.294,9.699
+     Available experimental Q2: 2.774,3.244,3.793,4.435,5.187,6.065,7.093,8.294,9.699
+     Also Q2: 0.5,1,1.5,2,2.5,3
+     Also: 1.5,1.75,2.0,2.25,2.5,2.75,3.0
+     Also: 0.5,0.75,1.0,1.25,1.5,1.75,2.0,2.25,2.5,2.75,3.0
     """
     mode = input(
-         "Enter 'calc'/'plot'/'table'/'compare_strfun'/'compare_exp_model_pdf'/'compare_exp_pdf_resonance'/'fit_exp_data'/'exp_minus_resonance' : "
+         "Enter 'calc'/'plot'/'table'/'compare_strfun'/'compare_exp_model_pdf'/'compare_f12_strfun'/'compare_exp_pdf_resonance'/'fit_exp_data_individual'/'fit_exp_data_global'/'anl_struct_func_xsecs'/'plot_xsect_omega_energy' : "
     ).strip().lower()
     
     file_path = "input_data/wempx.dat"
@@ -118,7 +124,8 @@ def main():
             try:
                 print(f"\nProcessing compare_exp_model_pdf for Q² = {q2} GeV² with x-axis = {xaxis_choice} ...")
                 if xaxis_choice == "w":
-                    compare_exp_model_pdf(q2, beam_energy, num_points=200)
+                    print(f"\nProcessing compare_exp_model_pdf for Q² = {q2_list} GeV² with x-axis = W ...")
+                    compare_exp_model_pdf(q2_list, beam_energy, num_points=200)
                 elif xaxis_choice == "x":
                     compare_exp_model_pdf_Bjorken_x(q2, beam_energy, num_points=200)
                 elif xaxis_choice == "xi":
@@ -127,7 +134,14 @@ def main():
                     print("Invalid X‑axis choice. Please enter 'W', 'x', or 'xi'.")
             except Exception as e:
                 print(f"Error for Q² = {q2}: {e}")
-
+    elif mode == "compare_f12_strfun":
+        try:
+            q2_list = [float(s.strip()) for s in input("Enter Q² values, comma-separated: ").split(",")]
+        except ValueError:
+            print("Invalid input.")
+            return
+        xaxis_choice = input("What's on the x-axis? Enter 'w' or 'x': ").strip().lower()
+        compare_f12_strfun(q2_list, xaxis_choice)
     elif mode == "compare_exp_pdf_resonance":
         # Compare PDF + resonance vs experiment
         try:
@@ -146,7 +160,8 @@ def main():
                 compare_exp_pdf_resonance(q2, beam_energy)
             except Exception as e:
                 print(f"Error for Q² = {q2}: {e}")
-    elif mode == "fit_exp_data":
+                
+    elif mode == "fit_exp_data_individual":
         try:
             #q2_input_str = input("Enter Q² values (GeV²) to fit, separated by commas: ").strip()
             #q2_list = [float(s) for s in q2_input_str.split(",") if s.strip()]
@@ -157,26 +172,50 @@ def main():
             print("Invalid input. Please enter numerical values for Q² and beam energy.")
             return
         try:
-            print(f"\nRunning fit_exp_data for Q² = {q2_list} GeV² at E = {beam_energy} GeV …")
-            fit_exp_data(q2_list, exp_file="exp_data_all.dat", beam_energy=beam_energy)
+            print(f"\nRunning fit_exp_data_individual for Q² = {q2_list} GeV² at E = {beam_energy} GeV …")
+            fit_exp_data_individual(q2_list, exp_file="bodek_fitting/exp_data_all.dat", beam_energy=beam_energy)
         except Exception as e:
-            print(f"Error during fit_exp_data: {e}")
-    elif mode == "exp_minus_resonance":
-        try:
-            q2_input = input("Enter fixed Q² values (GeV²), comma-separated: ").strip()
-            q2_list = [float(s) for s in q2_input.split(",") if s.strip()]
-            beam_energy = float(input("Enter beam (lepton) energy (GeV): ").strip())
-        except ValueError:
-            print("Invalid input. Please enter numerical values.")
-            return
-
-        try:
-            exp_minus_resonance(q2_list, beam_energy)
-        except Exception as e:
-            print(f"Error generating exp_minus_resonance: {e}")
+            print(f"Error during fit_exp_data_individual: {e}")
             
-    else:
-        print("Invalid option. Please enter one of: calc, plot, table, compare_strfun, compare_exp_model_pdf, compare_exp_pdf_resonance.")
+    elif mode == "fit_exp_data_global":
+        try:
+            q2_list = [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]
+            beam_energy = 10.6
+        except ValueError:
+            print("Invalid input. Please enter numerical values for Q² and beam energy.")
+            return
+        try:
+            print(f"\nRunning fit_exp_data_global for Q² = {q2_list} GeV² at E = {beam_energy} GeV …")
+            fit_exp_data_global(q2_list, exp_file="bodek_fitting_all_Q2/exp_data_all.dat", beam_energy=beam_energy)
+        except Exception as e:
+            print(f"Error during fit_exp_data_global: {e}")
+            
+    elif mode == "anl_struct_func_xsecs":
+        q2_list = [float(v) for v in input("Enter Q² (or comma‐separated list): ").split(",")]
+        Ebeam   = float(input("Enter beam (lepton) energy (GeV): "))
+        for q2 in q2_list:
+            print(f"Running anl_struct_func_xsecs for Q²={q2} GeV² …")
+            try:
+                anl_struct_func_xsecs(q2, Ebeam)
+            except Exception as e:
+                print(f"   Error for Q²={q2:.3f}: {e}")     
+    elif mode == "plot_xsect_omega_energy":
+        try:
+            q2_input_str = input("Enter Q² values (GeV²), comma-separated: ").strip()
+            theta_input_str = input("Enter θ values (deg), comma-separated (same length as Q²): ").strip()
+            q2_list = [float(v) for v in q2_input_str.split(",")]
+            theta_list = [float(v) for v in theta_input_str.split(",")]
+            if len(q2_list) != len(theta_list):
+                raise ValueError("Q² list and θ list must be of the same length.")
+            E_beam = float(input("Enter beam (lepton) energy (GeV): "))
+        except Exception as e:
+            print(f"Input error: {e}")
+            return
+    
+        try:
+            plot_xsect_omega_energy(q2_list, theta_list, E_beam)
+        except Exception as e:
+            print(f"Error: {e}")
 
 if __name__ == "__main__":
     main()

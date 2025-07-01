@@ -60,6 +60,59 @@ def interpolate_structure_functions(file_path, target_W, target_Q2):
     
     return W1_interp, W2_interp
 
+
+def interpolate_structure_functions_1pi(file_path, target_W, target_Q2):
+    """
+    Bicubic interpolation of single-pion structure functions (W1, W2)
+    on a regular (W, Q²) grid, using RectBivariateSpline.
+
+    Expected columns in *file_path*:
+        0 : W   (GeV)
+        1 : Q²  (GeV²)
+        2 : W1
+        3 : W2
+        (extra columns are ignored)
+    """
+    # ---------- load ----------
+    data = np.loadtxt(file_path)
+    if data.shape[1] < 4:
+        raise ValueError(
+            f"{file_path} must have ≥ 4 columns (W, Q², W1, W2); "
+            f"found {data.shape[1]}"
+        )
+
+    W_all, Q2_all = data[:, 0], data[:, 1]
+    W1_all, W2_all = data[:, 2], data[:, 3]
+
+    # ---------- unique axes ----------
+    W_uni   = np.unique(W_all)
+    Q2_uni  = np.unique(Q2_all)
+    nW, nQ2 = len(W_uni), len(Q2_uni)
+
+    # range check
+    if not (W_uni[0] <= target_W <= W_uni[-1]):
+        raise ValueError(f"W = {target_W} GeV outside table range {W_uni[0]}–{W_uni[-1]}")
+    if not (Q2_uni[0] <= target_Q2 <= Q2_uni[-1]):
+        raise ValueError(f"Q² = {target_Q2} GeV² outside table range {Q2_uni[0]}–{Q2_uni[-1]}")
+
+    # ---------- reshape to 2-D grid ----------
+    try:
+        W1_grid = W1_all.reshape(nW, nQ2)
+        W2_grid = W2_all.reshape(nW, nQ2)
+    except ValueError:
+        raise ValueError(
+            "1π table is not a complete rectangular W–Q² grid. "
+            "Fill in the missing points or use a scattered-data interpolator."
+        )
+
+    # ---------- bicubic splines ----------
+    spl_W1 = RectBivariateSpline(W_uni, Q2_uni, W1_grid, kx=3, ky=3)
+    spl_W2 = RectBivariateSpline(W_uni, Q2_uni, W2_grid, kx=3, ky=3)
+
+    W1_interp = spl_W1(target_W, target_Q2)[0, 0]
+    W2_interp = spl_W2(target_W, target_Q2)[0, 0]
+
+    return W1_interp, W2_interp
 def compute_cross_section(W, Q2, beam_energy, file_path="input_data/wempx.dat", verbose=True):
     """
     Computes the differential cross section dσ/dW/dQ² for an electromagnetic (EM)
@@ -132,6 +185,69 @@ def compute_cross_section(W, Q2, beam_energy, file_path="input_data/wempx.dat", 
     # Differential cross section: dσ/dW/dQ² = fcrs3 * fac3 * xxx
     dcrs = fcrs3 * fac3 * xxx
     return dcrs
+
+
+def calculate_1pi_cross_section(W, Q2, beam_energy, file_path="input_data/wemp-pi.dat", verbose=True):
+    """
+    Computes the differential cross section dσ/dW/dQ² for the single-pion production
+    channel (1π) in electromagnetic scattering N(e,e'π)X using interpolated structure functions.
+
+    The reaction is fixed to EM interaction with massless leptons.
+
+    Parameters:
+        W          : Invariant mass of the final hadron system (GeV)
+        Q2         : Photon virtuality (GeV²)
+        beam_energy: Beam (lepton) energy in the lab frame (GeV)
+        file_path  : Path to 1π structure function file (default: "input_data/wemp-pi.dat")
+        verbose    : If True, prints the interpolated structure functions.
+
+    Returns:
+        dcrs       : Differential cross section in units of 10^(-30) cm²/GeV³
+    """
+    # Physical constants
+    fnuc = 0.9385         # Nucleon mass in GeV
+    pi = 3.1415926
+    alpha = 1 / 137.04    # Fine-structure constant
+
+    # Massless lepton assumption
+    flepi = 0.0
+    flepf = 0.0
+
+    # Step 1: Interpolate structure functions W1 and W2 for 1pi production
+    W1, W2 = interpolate_structure_functions_1pi(file_path, W, Q2)
+    if verbose:
+        print(f"[1π] Interpolated structure functions at (W={W:.3f}, Q²={Q2:.3f}):")
+        print(f"    W1 = {W1:.5e}")
+        print(f"    W2 = {W2:.5e}")
+
+    # Step 2: Kinematics
+    wtot = math.sqrt(2 * fnuc * beam_energy + fnuc**2)
+    if W > wtot:
+        raise ValueError("W is greater than the available lab energy (w_tot).")
+
+    elepi = beam_energy
+    plepi = elepi
+
+    omeg = (W**2 + Q2 - fnuc**2) / (2 * fnuc)
+    elepf = elepi - omeg
+    if elepf <= 0:
+        raise ValueError("Final lepton energy is non-positive.")
+    plepf = elepf
+
+    clep = (-Q2 + 2 * elepi * elepf) / (2 * plepi * plepf)
+
+    # Step 3: Cross section calculation
+    fac3 = pi * W / (fnuc * elepi * elepf)
+    fcrs3 = 4 * (alpha / Q2)**2 * (0.197327**2) * 1e4 * (elepf**2)
+
+    ss2 = (1 - clep) / 2
+    cc2 = (1 + clep) / 2
+
+    xxx = 2 * ss2 * W1 + cc2 * W2
+    dcrs = fcrs3 * fac3 * xxx
+
+    return dcrs
+
 
 def plot_cross_section_vs_W(Q2, beam_energy, file_path="input_data/wempx.dat", num_points=200):
     """
@@ -232,85 +348,123 @@ def generate_table(file_path, fixed_Q2, beam_energy):
     np.savetxt(output_filename, np.array(output_rows), header=header, fmt="%.6e", delimiter="\t")
     print(f"Table saved as {output_filename}")
     
-def compare_strfun(fixed_Q2, beam_energy, interp_file="input_data/wempx.dat", num_points=200):
+def compare_strfun(fixed_Q2, beam_energy,
+                   interp_file="input_data/wempx.dat",
+                   onepi_file="input_data/wemp-pi.dat",
+                   num_points=200):
     """
-    Compares the interpolated cross section from ANL model with 
-    experimentally measured and interpolated cross sections from strfun website https://clas.sinp.msu.ru/strfun/.
-
-    The measured data is expected in the folder "strfun_data" with a file
-    named "cs_Q2=<fixed_Q2>.dat" (using the exact fixed_Q2 value as typed by the user).
-    That file should have a header and three columns: W, Quantity, and Uncertainty. Taken from the website.
-
-    If fixed_Q2 is near 2.75 (within 0.01), a third dataset is loaded from the 
-    "exp_data" folder with the file "InclusiveExpValera_Q2=2.774.dat". This file is 
-    assumed to have a header and columns: W, eps, sigma, error, sys_error. The total 
-    error is computed as sqrt(error² + sys_error²).
-
-    The function:
-      - Generates a fine grid of W values (from the interp_file) over the available range.
-      - Computes the cross section at each W (using compute_cross_section) for the given fixed Q² and beam energy.
-      - Loads the measured data from the appropriate file.
-      - Plots the interpolated cross section as a smooth blue line (labeled "ANL model"),
-        overlays the measured data as red markers with error bars (labeled "strfun website"),
-        and, if applicable, overlays the experiment data as purple markers (labeled "experiment RGA").
-      - Saves the plot as a PNG file with a filename that includes the fixed Q² and beam energy.
-
-    Parameters:
-      fixed_Q2 (float): Fixed Q² value.
-      beam_energy (float): Beam energy in GeV.
-      interp_file (str): Path to the interpolation file (default "input_data/wempx.dat").
-      num_points (int): Number of W points for interpolation (default 200).
+    Compare ANL-Osaka, PDF, 1π, and data (strfun + RGA) cross sections up to W=2 GeV.
     """
-    # Load interpolation file to get the available W range.
+
+    W_cutoff = 2.0
+
+    # ---------- W grid ----------
     data = np.loadtxt(interp_file)
-    W_all = data[:, 0]
-    W_unique = np.unique(W_all)
-    W_min = W_unique[0]
-    W_max = W_unique[-1]
-    
-    # Generate fine grid of W values.
-    W_vals = np.linspace(W_min, W_max, num_points)
-    cross_sections = []
+    W_grid = np.unique(data[:, 0])
+    W_vals = np.linspace(W_grid.min(), min(W_grid.max(), W_cutoff), num_points)
+
+    # ---------- model curves ----------
+    anl_xs, pdf_xs, onepi_xs = [], [], []
+    F1_interp, F2_interp, _ = get_pdf_interpolators(fixed_Q2)
+
     for w in W_vals:
-        cs = compute_cross_section(w, fixed_Q2, beam_energy, file_path=interp_file, verbose=False)
-        cross_sections.append(cs)
-    
-    # Load measured data from "strfun_data" folder.
-    measured_filename = f"strfun_data/cs_Q2={fixed_Q2}.dat"
-    if not os.path.isfile(measured_filename):
-        raise FileNotFoundError(f"Measured data file {measured_filename} not found.")
-    # The file is assumed to be tab-delimited with columns: W, Quantity, Uncertainty.
-    measured_data = np.genfromtxt(measured_filename, names=["W", "Quantity", "Uncertainty"], delimiter="\t", skip_header=1)
-    W_meas = measured_data["W"]
-    quantity_meas = measured_data["Quantity"]
-    uncertainty_meas = measured_data["Uncertainty"]
-    
+        anl_xs.append(
+            compute_cross_section(w, fixed_Q2, beam_energy,
+                                  file_path=interp_file, verbose=False)
+        )
+        try:
+            pdf_xs.append(
+                compute_cross_section_pdf(w, fixed_Q2, beam_energy,
+                                          F1_interp, F2_interp)
+            )
+        except Exception:
+            pdf_xs.append(np.nan)
+
+        try:
+            onepi_xs.append(
+                calculate_1pi_cross_section(w, fixed_Q2, beam_energy,
+                                            file_path=onepi_file, verbose=False)
+            )
+        except Exception:
+            onepi_xs.append(np.nan)
+
+    anl_xs   = np.asarray(anl_xs)
+    pdf_xs   = np.asarray(pdf_xs)
+    onepi_xs = np.asarray(onepi_xs)
+
+    # ---------- experimental strfun data ----------
+    meas_file = f"strfun_data/cs_Q2={fixed_Q2}_E={beam_energy}.dat"
+    if not os.path.isfile(meas_file):
+        raise FileNotFoundError(meas_file + " not found")
+
+    mdat = np.genfromtxt(
+        meas_file,
+        names=["W", "Quantity", "Uncertainty"],
+        delimiter="\t", skip_header=1,
+    )
+    mask_meas = mdat["W"] <= W_cutoff
+
+    # ---------- optional Klimenko RGA data ----------
+    plot_rga = abs(fixed_Q2 - 2.774) < 1e-3
+    if plot_rga:
+        rga_file = "exp_data/InclusiveExpValera_Q2=2.774.dat"
+        if not os.path.isfile(rga_file):
+            raise FileNotFoundError(f"Expected RGA data {rga_file} not found")
+        rga_data = np.genfromtxt(rga_file,
+                                 names=["W", "eps", "sigma", "error", "sys_error"],
+                                 delimiter="\t", skip_header=1)
+        mask_rga = rga_data["W"] <= W_cutoff
+        W_rga = rga_data["W"][mask_rga]
+        sigma_rga = rga_data["sigma"][mask_rga] * 1e-3
+        err_rga = np.sqrt(rga_data["error"][mask_rga]**2 + rga_data["sys_error"][mask_rga]**2) * 1e-3
+
+    # ---------- plot ----------
     plt.figure(figsize=(8, 6))
-    plt.plot(W_vals, cross_sections, label="ANL model", color="blue", linewidth=2)
-    plt.errorbar(W_meas, quantity_meas, yerr=uncertainty_meas, fmt="o", color="green", capsize=1, markersize=2, label="strfun website:CLAS and world data")
-    
-    # If fixed_Q2 is near 2.75, load additional experiment dataset.
-    if abs(fixed_Q2 - 2.774) < 0.001:
-        exp_filename = "exp_data/InclusiveExpValera_Q2=2.774.dat"
-        if not os.path.isfile(exp_filename):
-            raise FileNotFoundError(f"Experiment data file {exp_filename} not found.")
-        # File assumed to have a header and columns: W, eps, sigma, error, sys_error.
-        exp_data = np.genfromtxt(exp_filename, names=["W", "eps", "sigma", "error", "sys_error"], delimiter="\t", skip_header=1)
-        exp_W = exp_data["W"]
-        exp_sigma = exp_data["sigma"]*1e-3
-        exp_error = np.sqrt(exp_data["error"]**2 + exp_data["sys_error"]**2)*1e-3
-        plt.errorbar(exp_W, exp_sigma, yerr=exp_error, fmt="o", color="red", capsize=1, markersize=2, label="experiment RGA")
-    
+
+    h_anl, = plt.plot(W_vals, anl_xs, label="ANL-Osaka model:full cross section", color="blue", lw=2)
+    #h_pdf, = plt.plot(W_vals, pdf_xs, label="PDF model (outdated!)", color="orange", ls="--", lw=2)
+    good = ~np.isnan(onepi_xs)
+    h_1pi, = plt.plot(W_vals[good], onepi_xs[good], label="ANL-Osaka model: 1π contribution", color="purple", lw=2)
+
+    h_data = plt.errorbar(
+        mdat["W"][mask_meas],
+        mdat["Quantity"][mask_meas],
+        yerr=mdat["Uncertainty"][mask_meas],
+        fmt="o", color="green", capsize=1, ms=2,
+        label="strfun website: CLAS+world data"
+    )
+
+    if plot_rga and len(W_rga) > 0:
+        h_rga = plt.errorbar(
+            W_rga, sigma_rga, yerr=err_rga,
+            fmt="s", color="red", capsize=1, ms=2,
+            label="RGA data (V. Klimenko)"
+        )
+
+    # ---------- legend ----------
+    handles = [plt.Line2D([], [], color='white', label=f"Q² = {fixed_Q2:.3f} GeV², E = {beam_energy} GeV"),
+               h_anl,
+               h_1pi,
+               #h_pdf,
+               h_data]
+    if plot_rga and len(W_rga) > 0:
+        handles.append(h_rga)
+
+    labels = [h.get_label() for h in handles]
+
     plt.xlabel("W (GeV)")
-    plt.ylabel("Cross Section (10⁻³⁰ cm²/GeV³)")
-    plt.title(f"Cross Section Comparison at Q² = {fixed_Q2} GeV², Beam Energy = {beam_energy} GeV")
-    plt.legend()
+    plt.ylabel(r"Cross Section ($\mathrm{\mu bn/GeV^3}$)")
     plt.grid(True)
-    
-    filename = f"compare_strfun/compare_strfun_Q2={fixed_Q2}_E={beam_energy}.png"
-    plt.savefig(filename, dpi=300)
+    plt.legend(handles, labels, loc="upper left", fontsize="small")
+
+    os.makedirs("compare_strfun", exist_ok=True)
+    fname = f"compare_strfun/compare_strfun_Q2={fixed_Q2}_E={beam_energy}.pdf"
+    plt.savefig(fname, dpi=300)
     plt.close()
-    print(f"Comparison plot saved as {filename}")
+    print("Saved →", fname)
+
+
+
 
 # --- New functions for PDF-based comparison ---
 
@@ -404,153 +558,148 @@ def compute_cross_section_pdf(W, Q2, beam_energy, F1_W_interp, F2_W_interp):
     dcrs = fcrs3 * fac3 * xxx
     return dcrs
 
-def compare_exp_model_pdf(fixed_Q2, beam_energy, num_points=200):
+def compare_exp_model_pdf(q2_list, beam_energy, num_points=200):
     """
-    Compares the PDF-based theoretical cross section with the ANL model cross section and experimental data,
-    as a function of W. Also produces a 2×2 canvas that shows, versus W:
-      Top left: Derived structure function W1 = F1/Mₚ.
-      Top right: Derived structure function W2 = F2/ω.
-      Bottom left: Raw structure function F1.
-      Bottom right: Raw structure function F2.
-    For each subplot the PDF-based (solid line) and ANL model (dashed line) curves are overlaid.
-    A text table is also generated.
+    Compare the PDF-based theoretical cross section with the ANL model cross section and experimental data,
+    as a function of W. Creates a shared cross-section canvas with subplots for each Q²,
+    and per-Q² 4-panel plots of structure functions.
     """
-
 
     Mp = 0.9385
-    # Get PDF interpolators from the PDF table.
-    F1_W_interp, F2_W_interp, W_min = get_pdf_interpolators(fixed_Q2)
-    # Define W grid (we use the PDF's minimum and a chosen upper bound, e.g. 2.5 GeV).
-    W_vals = np.linspace(W_min, 2.6, num_points)
+    num_q2 = len(q2_list)
+    cols = math.ceil(math.sqrt(num_q2))
+    rows = math.ceil(num_q2 / cols)
+    fig_cs, axs_cs = plt.subplots(rows, cols, figsize=(5 * cols, 4 * rows), sharex=True)
+    axs_cs = axs_cs.flatten()  # flatten 2D grid to 1D list for easy indexing
 
-    # Arrays to store PDF-based structure functions.
-    pdf_F1_vals = []   # raw F1 from PDF (via interpolation)
-    pdf_F2_vals = []
-    pdf_W1_vals = []   # derived: W1 = F1/Mp
-    pdf_W2_vals = []   # derived: W2 = F2/ω
+    for idx, fixed_Q2 in enumerate(q2_list):
+        # Get PDF interpolators
+        F1_W_interp, F2_W_interp, W_min = get_pdf_interpolators(fixed_Q2)
+        W_vals = np.linspace(W_min, 2.6, num_points)
 
-    # Arrays to store ANL model structure functions.
-    anl_F1_vals = []   # raw F1 from ANL model = Mₚ * (W1 from ANL)
-    anl_F2_vals = [] = []  # raw F2 from ANL model = ω * (W2 from ANL)
-    anl_W1_vals = []   # directly interpolated W1 from ANL model
-    anl_W2_vals = []   # directly interpolated W2 from ANL model
+        # Storage arrays
+        pdf_F1_vals, pdf_F2_vals = [], []
+        pdf_W1_vals, pdf_W2_vals = [], []
+        anl_W1_vals, anl_W2_vals = [], []
+        anl_F1_vals, anl_F2_vals = [], []
+        pdf_cross_sections, anl_cross_sections = [], []
 
-    # Also compute cross sections (for the upper plot)
-    pdf_cross_sections = []
-    anl_cross_sections = []
+        for W in W_vals:
+            omega = (W**2 + fixed_Q2 - Mp**2) / (2.0 * Mp)
 
-    for W in W_vals:
-        # --- PDF-based structure functions
-        try:
-            F1_pdf = F1_W_interp(W)
-            F2_pdf = F2_W_interp(W)
-        except Exception:
-            F1_pdf, F2_pdf = np.nan, np.nan
-        pdf_F1_vals.append(F1_pdf)
-        pdf_F2_vals.append(F2_pdf)
-        W1_pdf = F1_pdf / Mp if not np.isnan(F1_pdf) else np.nan
-        omega = (W**2 + fixed_Q2 - Mp**2) / (2.0 * Mp)
-        W2_pdf = F2_pdf / omega if (omega > 0 and not np.isnan(F2_pdf)) else np.nan
-        pdf_W1_vals.append(W1_pdf)
-        pdf_W2_vals.append(W2_pdf)
+            # PDF model
+            try:
+                F1_pdf = F1_W_interp(W)
+                F2_pdf = F2_W_interp(W)
+            except Exception:
+                F1_pdf, F2_pdf = np.nan, np.nan
+            pdf_F1_vals.append(F1_pdf)
+            pdf_F2_vals.append(F2_pdf)
+            W1_pdf = F1_pdf / Mp if not np.isnan(F1_pdf) else np.nan
+            W2_pdf = F2_pdf / omega if (omega > 0 and not np.isnan(F2_pdf)) else np.nan
+            pdf_W1_vals.append(W1_pdf)
+            pdf_W2_vals.append(W2_pdf)
 
-        # --- ANL model structure functions (from input file)
-        try:
-            anl_w1, anl_w2 = interpolate_structure_functions("input_data/wempx.dat", W, fixed_Q2)
-        except Exception:
-            anl_w1, anl_w2 = np.nan, np.nan
-        anl_W1_vals.append(anl_w1)
-        anl_W2_vals.append(anl_w2)
-        # Convert to raw F1 and F2: F1 = Mₚ * W1, F2 = ω * W2.
-        F1_anl = Mp * anl_w1
-        F2_anl = omega * anl_w2 if omega > 0 else np.nan
-        anl_F1_vals.append(F1_anl)
-        anl_F2_vals.append(F2_anl)
+            # ANL model
+            try:
+                anl_w1, anl_w2 = interpolate_structure_functions("input_data/wempx.dat", W, fixed_Q2)
+            except Exception:
+                anl_w1, anl_w2 = np.nan, np.nan
+            anl_W1_vals.append(anl_w1)
+            anl_W2_vals.append(anl_w2)
+            anl_F1_vals.append(Mp * anl_w1)
+            anl_F2_vals.append(omega * anl_w2 if omega > 0 else np.nan)
 
-        # --- Cross sections for comparison plots.
-        try:
-            cs_pdf = compute_cross_section_pdf(W, fixed_Q2, beam_energy, F1_W_interp, F2_W_interp)
-        except Exception:
-            cs_pdf = np.nan
-        pdf_cross_sections.append(cs_pdf)
-        try:
-            cs_anl = compute_cross_section(W, fixed_Q2, beam_energy, file_path="input_data/wempx.dat", verbose=False)
-        except Exception:
-            cs_anl = np.nan
-        anl_cross_sections.append(cs_anl)
+            # Cross sections
+            try:
+                cs_pdf = compute_cross_section_pdf(W, fixed_Q2, beam_energy, F1_W_interp, F2_W_interp)
+            except Exception:
+                cs_pdf = np.nan
+            pdf_cross_sections.append(cs_pdf)
 
-    # --- Plot cross sections vs W.
-    plt.figure(figsize=(8,6))
-    plt.plot(W_vals, pdf_cross_sections, label="PDF model", color='green', linestyle='--')
-    plt.plot(W_vals, anl_cross_sections, label="ANL-Osaka model", color='blue', linestyle='-')
-    # Load experimental data:
-    exp_file = f"exp_data/wempx.dat"  # (Or your actual experimental filename, here using same as before)
-    # Here we assume experimental file exists; adjust as needed.
-    exp_file = f"exp_data/InclusiveExpValera_Q2={fixed_Q2}.dat"
-    if not os.path.isfile(exp_file):
-        raise FileNotFoundError(f"Experimental data file {exp_file} not found.")
-    exp_data = np.genfromtxt(exp_file, names=["W", "eps", "sigma", "error", "sys_error"], delimiter="\t", skip_header=1)
-    plt.errorbar(exp_data["W"], exp_data["sigma"]*1e-3,
-                 yerr=np.sqrt(exp_data["error"]**2+exp_data["sys_error"]**2)*1e-3,
-                 fmt="o", color="red", label="Experimental data")
-    plt.xlabel("W (GeV)")
-    plt.ylabel("dσ/dW/dQ² (10⁻³⁰ cm²/GeV³)")
-    plt.title(f"Cross Section vs W at Q² = {fixed_Q2} GeV², E = {beam_energy} GeV")
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-    filename_cs = f"cross_section_vs_W_comparison_Q2={fixed_Q2}_Ebeam={beam_energy}.png"
-    plt.savefig(filename_cs, dpi=300)
-    plt.close()
-    print(f"Cross section vs W plot saved as {filename_cs}")
+            try:
+                cs_anl = compute_cross_section(W, fixed_Q2, beam_energy, file_path="input_data/wempx.dat", verbose=False)
+            except Exception:
+                cs_anl = np.nan
+            anl_cross_sections.append(cs_anl)
 
-    # --- 2×2 Panel: Structure Functions vs W (Both PDF and ANL).
-    fig, axs = plt.subplots(2, 2, figsize=(12, 10))
-    # Top left: W1 vs W
-    axs[0, 0].plot(W_vals, pdf_W1_vals, label="PDF: W1 = F1/Mₚ", color="magenta", linestyle="-")
-    axs[0, 0].plot(W_vals, anl_W1_vals, label="ANL-Osaka: W1", color="magenta", linestyle="--")
-    axs[0, 0].set_xlabel("W (GeV)")
-    axs[0, 0].set_ylabel("W1")
-    axs[0, 0].set_title("W1 vs W")
-    axs[0, 0].grid(True)
-    axs[0, 0].legend()
-    # Top right: W2 vs W
-    axs[0, 1].plot(W_vals, pdf_W2_vals, label="PDF: W2 = F2/ω", color="orange", linestyle="-")
-    axs[0, 1].plot(W_vals, anl_W2_vals, label="ANL-Osaka: W2", color="orange", linestyle="--")
-    axs[0, 1].set_xlabel("W (GeV)")
-    axs[0, 1].set_ylabel("W2")
-    axs[0, 1].set_title("W2 vs W")
-    axs[0, 1].grid(True)
-    axs[0, 1].legend()
-    # Bottom left: F1 vs W
-    axs[1, 0].plot(W_vals, pdf_F1_vals, label="PDF: F1", color="blue", linestyle="-")
-    axs[1, 0].plot(W_vals, anl_F1_vals, label="ANL-Osaka: F1", color="blue", linestyle="--")
-    axs[1, 0].set_xlabel("W (GeV)")
-    axs[1, 0].set_ylabel("F1")
-    axs[1, 0].set_title("F1 vs W")
-    axs[1, 0].grid(True)
-    axs[1, 0].legend()
-    # Bottom right: F2 vs W
-    axs[1, 1].plot(W_vals, pdf_F2_vals, label="PDF: F2", color="green", linestyle="-")
-    axs[1, 1].plot(W_vals, anl_F2_vals, label="ANL-Osaka: F2", color="green", linestyle="--")
-    axs[1, 1].set_xlabel("W (GeV)")
-    axs[1, 1].set_ylabel("F2")
-    axs[1, 1].set_title("F2 vs W")
-    axs[1, 1].grid(True)
-    axs[1, 1].legend()
-    fig.suptitle(f"Structure Functions vs W at Q² = {fixed_Q2} GeV², E = {beam_energy} GeV", fontsize=16)
-    plt.tight_layout(rect=[0, 0, 1, 0.95])
-    filename_sf = f"structure_functions_4plots_vs_W_Q2={fixed_Q2}_Ebeam={beam_energy}.png"
-    #plt.savefig(filename_sf, dpi=300)
-    plt.close()
-    print(f"4-panel structure functions vs W plot saved as {filename_sf}")
+        # --- Plot: cross sections subplot (one per Q²)
+        ax_cs = axs_cs[idx]
+        ax_cs.plot(W_vals, pdf_cross_sections, label="PDF model", color='green', linestyle='--')
+        ax_cs.plot(W_vals, anl_cross_sections, label="ANL-Osaka model", color='blue', linestyle='-')
 
-    # Write text table with columns: Q2, W, PDF_W1, ANL_W1, PDF_W2, ANL_W2.
-    table_data = np.column_stack((np.full(W_vals.shape, fixed_Q2), W_vals, pdf_W1_vals, anl_W1_vals, pdf_W2_vals, anl_W2_vals, anl_F1_vals, anl_F2_vals, pdf_F1_vals, pdf_F2_vals, pdf_cross_sections))
-    table_filename = f"structure_functions_table_vs_W_Q2={fixed_Q2}_Ebeam={beam_energy}.txt"
-    header_str = "Q2\tW\tPDF_W1\tANL_W1\tPDF_W2\tANL_W2\tANL_F1\tANL_F2\tPDF_F1\tPDF_F2\tPDF_CrossSection"
-    np.savetxt(table_filename, table_data, fmt="%.6e", delimiter="\t", header=header_str)
-    print(f"Structure functions table vs W saved as {table_filename}")
+        exp_file = f"exp_data/InclusiveExpValera_Q2={fixed_Q2}.dat"
+        if os.path.isfile(exp_file):
+            exp_data = np.genfromtxt(exp_file, names=["W", "eps", "sigma", "error", "sys_error"], delimiter="\t", skip_header=1)
+            ax_cs.errorbar(exp_data["W"], exp_data["sigma"] * 1e-3,
+                           yerr=np.sqrt(exp_data["error"]**2 + exp_data["sys_error"]**2) * 1e-3,
+                           fmt="o", color="red", markersize=3, label="Experimental data")
+        else:
+            print(f"Warning: Experimental file {exp_file} not found. Skipping data overlay.")
+        
+        ax_cs.set_ylabel("$dσ/dW dQ^2$ $\mu bn$/GeV^3)")
+        ax_cs.set_title(f"Q² = {fixed_Q2:.3f} GeV²")
+        ax_cs.grid(True)
+        ax_cs.legend()
+
+        # --- Save structure function 2x2 panel plot for this Q²
+        fig_sf, axs = plt.subplots(2, 2, figsize=(12, 10))
+        axs[0, 0].plot(W_vals, pdf_W1_vals, label="PDF: W1 = F1/Mₚ", color="magenta", linestyle="-")
+        axs[0, 0].plot(W_vals, anl_W1_vals, label="ANL-Osaka: W1", color="magenta", linestyle="--")
+        axs[0, 0].set_xlabel("W (GeV)")
+        axs[0, 0].set_ylabel("W1")
+        axs[0, 0].set_title("W1 vs W")
+        axs[0, 0].grid(True)
+        axs[0, 0].legend()
+
+        axs[0, 1].plot(W_vals, pdf_W2_vals, label="PDF: W2 = F2/ω", color="orange", linestyle="-")
+        axs[0, 1].plot(W_vals, anl_W2_vals, label="ANL-Osaka: W2", color="orange", linestyle="--")
+        axs[0, 1].set_xlabel("W (GeV)")
+        axs[0, 1].set_ylabel("W2")
+        axs[0, 1].set_title("W2 vs W")
+        axs[0, 1].grid(True)
+        axs[0, 1].legend()
+
+        axs[1, 0].plot(W_vals, pdf_F1_vals, label="PDF: F1", color="blue", linestyle="-")
+        axs[1, 0].plot(W_vals, anl_F1_vals, label="ANL-Osaka: F1", color="blue", linestyle="--")
+        axs[1, 0].set_xlabel("W (GeV)")
+        axs[1, 0].set_ylabel("F1")
+        axs[1, 0].set_title("F1 vs W")
+        axs[1, 0].grid(True)
+        axs[1, 0].legend()
+
+        axs[1, 1].plot(W_vals, pdf_F2_vals, label="PDF: F2", color="green", linestyle="-")
+        axs[1, 1].plot(W_vals, anl_F2_vals, label="ANL-Osaka: F2", color="green", linestyle="--")
+        axs[1, 1].set_xlabel("W (GeV)")
+        axs[1, 1].set_ylabel("F2")
+        axs[1, 1].set_title("F2 vs W")
+        axs[1, 1].grid(True)
+        axs[1, 1].legend()
+
+        fig_sf.suptitle(f"Structure Functions vs W at Q² = {fixed_Q2:.3f} GeV², E = {beam_energy} GeV", fontsize=16)
+        fig_sf.tight_layout(rect=[0, 0, 1, 0.95])
+        filename_sf = f"structure_functions_4plots_vs_W_Q2={fixed_Q2}_Ebeam={beam_energy}.png"
+        fig_sf.savefig(filename_sf, dpi=300)
+        plt.close(fig_sf)
+        print(f"4-panel structure function plot saved as {filename_sf}")
+
+        # --- Save structure function table
+        table_data = np.column_stack((np.full(W_vals.shape, fixed_Q2), W_vals, pdf_W1_vals, anl_W1_vals,
+                                      pdf_W2_vals, anl_W2_vals, anl_F1_vals, anl_F2_vals,
+                                      pdf_F1_vals, pdf_F2_vals, pdf_cross_sections))
+        table_filename = f"structure_functions_table_vs_W_Q2={fixed_Q2}_Ebeam={beam_energy}.txt"
+        header_str = "Q2\tW\tPDF_W1\tANL_W1\tPDF_W2\tANL_W2\tANL_F1\tANL_F2\tPDF_F1\tPDF_F2\tPDF_CrossSection"
+        np.savetxt(table_filename, table_data, fmt="%.6e", delimiter="\t", header=header_str)
+        print(f"Structure function table saved as {table_filename}")
+
+    # Finalize and save shared cross section canvas
+    axs_cs[-1].set_xlabel("W (GeV)")
+    fig_cs.suptitle(f"Cross Section vs W for Q² values at E = {beam_energy} GeV", fontsize=16)
+    fig_cs.tight_layout(rect=[0, 0, 1, 0.96])
+    fig_cs.savefig(f"cross_section_multiQ2_vs_W_E={beam_energy}.png", dpi=300)
+    plt.close(fig_cs)
+    print(f"Combined cross section plot saved as cross_section_multiQ2_vs_W_E={beam_energy}.png")
+
 
 
 def compare_exp_model_pdf_Bjorken_x(fixed_Q2, beam_energy, num_points=200):
@@ -664,7 +813,7 @@ def compare_exp_model_pdf_Bjorken_x(fixed_Q2, beam_energy, num_points=200):
     plt.plot(x_theory, anl_cross_sections_dx, label="ANL-Osaka Model", color="blue")
     plt.errorbar(x_exp, sigma_exp_dx, yerr=err_exp_dx, fmt="o", color="red", markersize=3, label="Experimental data")
     plt.xlabel("Bjorken x")
-    plt.ylabel("dσ/dQ²dx (10⁻³⁰ cm²)")
+    plt.ylabel("dσ/dQ²dx ($\mu bn/GeV^2$)")
     plt.title(f"dσ/dQ²dx vs x at Q²={fixed_Q2} GeV², E={beam_energy} GeV")
     plt.legend()
     plt.grid(True)
@@ -876,7 +1025,7 @@ def compare_exp_model_pdf_Nachtmann_xi(fixed_Q2, beam_energy, num_points=200):
     plt.plot(xi_vals, anl_cross_sections_dxi, label="ANL-Osaka Model", color="blue")
     plt.errorbar(xi_exp, sigma_exp_dxi, yerr=err_exp_dxi, fmt="o", color="red", markersize=3, label="Experimental data")
     plt.xlabel("Nachtmann ξ")
-    plt.ylabel("dσ/dQ²dξ (10⁻³⁰ cm²)")
+    plt.ylabel("dσ/dQ²dξ ($\mu bn/GeV^2$)")
     plt.title(f"dσ/dQ²dξ vs ξ at Q²={fixed_Q2} GeV², E={beam_energy} GeV")
     plt.legend()
     plt.grid(True)
@@ -944,6 +1093,120 @@ def compare_exp_model_pdf_Nachtmann_xi(fixed_Q2, beam_energy, num_points=200):
     # Do not save
     #np.savetxt(table_filename, table_data, fmt="%.6e", delimiter="\t", header=header_str) 
     print(f"Structure functions vs ξ table saved as {table_filename}")
+    
+    
+def compare_f12_strfun(q2_list, xaxis_choice, interp_file="input_data/wempx.dat"):
+    """
+    Compares F1 and F2 structure functions from ANL model, PDF model, and strfun experimental data.
+    For each Q² in q2_list, it plots:
+        - Left: F1 vs X
+        - Right: F2 vs X
+      where X is either W or x depending on user choice.
+
+    Data files must exist in 'F1_F2_strfun/' as:
+        - F{1,2}_VS_{W,x}_Q2={q2}.dat
+    Format: Tab-delimited with header: X, Quantity, Uncertainty
+    """
+
+    from functions import get_pdf_interpolators  # Ensure this is available in your module
+    Mp = 0.9385
+
+    if xaxis_choice not in ("w", "x"):
+        print("Invalid choice. Use 'W' or 'x'.")
+        return
+
+    for q2 in q2_list:
+        suffix = f"VS_{xaxis_choice.upper()}_Q2={q2}"
+        f1_file = f"F1_F2_strfun/F1_{suffix}.dat"
+        f2_file = f"F1_F2_strfun/F2_{suffix}.dat"
+
+        if not os.path.exists(f1_file) or not os.path.exists(f2_file):
+            print(f"Missing data files for Q² = {q2}: {f1_file} or {f2_file}")
+            continue
+
+        exp_f1 = np.genfromtxt(f1_file, names=True, delimiter="\t")
+        exp_f2 = np.genfromtxt(f2_file, names=True, delimiter="\t")
+
+        F1_pdf_interp, F2_pdf_interp, W_min = get_pdf_interpolators(q2)
+
+        if xaxis_choice == "w":
+            X_vals = np.linspace(max(W_min, 1.1), 2.1, 250)
+            F1_anl, F2_anl = [], []
+            F1_pdf, F2_pdf = [], []
+            for W in X_vals:
+                try:
+                    w1, w2 = interpolate_structure_functions(interp_file, W, q2)
+                    omega = (W**2 + q2 - Mp**2) / (2 * Mp)
+                    F1_anl.append(Mp * w1)
+                    F2_anl.append(omega * w2)
+                    F1_pdf.append(F1_pdf_interp(W))
+                    F2_pdf.append(F2_pdf_interp(W))
+                except Exception:
+                    F1_anl.append(np.nan)
+                    F2_anl.append(np.nan)
+                    F1_pdf.append(np.nan)
+                    F2_pdf.append(np.nan)
+        else:
+            X_vals = []
+            F1_anl, F2_anl = [], []
+            F1_pdf, F2_pdf = [], []
+            for W in np.linspace(1.1, 2.1, 250):
+                try:
+                    omega = (W**2 + q2 - Mp**2) / (2 * Mp)
+                    x = q2 / (2 * Mp * omega)
+                    if not (0 < x < 1):
+                        continue
+                    w1, w2 = interpolate_structure_functions(interp_file, W, q2)
+                    F1_anl.append(Mp * w1)
+                    F2_anl.append(omega * w2)
+                    F1_pdf.append(F1_pdf_interp(W))
+                    F2_pdf.append(F2_pdf_interp(W))
+                    X_vals.append(x)
+                except Exception:
+                    continue
+
+        fig, axs = plt.subplots(1, 2, figsize=(14, 6))
+        
+        if xaxis_choice == "x":
+            x_axis_name = "x"
+        else:
+            x_axis_name = "W"
+            
+        if xaxis_choice == "x":
+            x_axis_units = "x Bjorken"
+        else:
+            x_axis_units = "W,(GeV)"
+
+        # F1 plot
+        axs[0].plot(X_vals, F1_anl, label="ANL-Osaka model", color="blue")
+        axs[0].plot(X_vals, F1_pdf, label="PDF model", color="green", linestyle="--")
+        axs[0].errorbar(exp_f1[x_axis_name], exp_f1["Quantity"], yerr=exp_f1["Uncertainty"],
+                        fmt="o", color="red", label="CLAS and World data", markersize=4, capsize=2)
+        axs[0].set_title(f"F₁ vs {x_axis_name} at Q² = {q2} GeV²")
+        axs[0].set_xlabel(x_axis_units)
+        axs[0].set_ylabel("F₁")
+        axs[0].grid(True)
+        axs[0].legend()
+
+        # F2 plot
+        axs[1].plot(X_vals, F2_anl, label="ANL-Osaka model", color="blue")
+        axs[1].plot(X_vals, F2_pdf, label="PDF model", color="green", linestyle="--")
+        axs[1].errorbar(exp_f2[x_axis_name], exp_f2["Quantity"], yerr=exp_f2["Uncertainty"],
+                        fmt="o", color="red", label="CLAS and World data", markersize=4, capsize=2)
+        axs[1].set_title(f"F₂ vs {x_axis_name} at Q² = {q2} GeV²")
+        axs[1].set_xlabel(x_axis_units)
+        axs[1].set_ylabel("F₂")
+        axs[1].grid(True)
+        axs[1].legend()
+
+        plt.tight_layout()
+        filename = f"F1_F2_comparison_strfun/compare_F12_strfun_VS_{xaxis_choice.upper()}_Q2={q2}.pdf"
+        plt.savefig(filename, dpi=300)
+        plt.close()
+        print(f"Saved F₁/F₂ comparison plot for Q² = {q2} as {filename}")
+
+
+
 
 
 def compare_exp_pdf_resonance(fixed_Q2, beam_energy):
@@ -1038,6 +1301,189 @@ def compare_exp_pdf_resonance(fixed_Q2, beam_energy):
     plt.savefig(filename, dpi=300)
     plt.close()
     print(f"Combined PDF + Resonance vs Experimental plot saved as {filename}")
+    
+    
+def anl_struct_func_xsecs(fixed_Q2, beam_energy, num_points=200):
+    """
+    For a given fixed Q² and beam energy, this routine:
+      1. Reads the existing “input_data/wempx.dat” grid of (W, Q², W1, W2).
+      2. Builds a smooth W‐grid (num_points points from W_min to W_max).
+      3. At each W:
+         • Interpolates the ANL model’s W1, W2 via interpolate_structure_functions().
+         • Computes the ANL cross section via compute_cross_section().
+      4. Plots W1 and W2 vs W (both curves on the same figure).
+      5. Writes out a text file with columns:
+           Q2,    W,    W1,    W2,    xsec
+    """
+
+    # First, load “input_data/wempx.dat” to determine the available W‐range.
+    if not os.path.isfile("input_data/wempx.dat"):
+        raise FileNotFoundError("ANL interpolation file 'input_data/wempx.dat' not found.")
+    data = np.loadtxt("input_data/wempx.dat")
+    W_all = data[:, 0]
+    Q2_all = data[:, 1]
+
+    # Determine unique W values in the grid:
+    W_unique = np.unique(W_all)
+    W_min, W_max = W_unique[0], W_unique[-1]
+
+    # Create a smooth W‐grid:
+    W_vals = np.linspace(W_min, W_max, num_points)
+
+    # Prepare storage lists:
+    W1_vals = []
+    W2_vals = []
+    xsec_vals = []
+
+    # Loop over the smooth W‐grid:
+    for W in W_vals:
+        try:
+            # Interpolate W1, W2 at (W, fixed_Q2)
+            anl_w1, anl_w2 = interpolate_structure_functions("input_data/wempx.dat", W, fixed_Q2)
+        except Exception:
+            anl_w1, anl_w2 = np.nan, np.nan
+
+        W1_vals.append(anl_w1)
+        W2_vals.append(anl_w2)
+
+        # Compute the ANL cross section at (W, fixed_Q2)
+        try:
+            cs_anl = compute_cross_section(W, fixed_Q2, beam_energy,
+                                           file_path="input_data/wempx.dat", verbose=False)
+        except Exception:
+            cs_anl = np.nan
+        xsec_vals.append(cs_anl)
+
+    W1_vals = np.array(W1_vals)
+    W2_vals = np.array(W2_vals)
+    xsec_vals = np.array(xsec_vals)
+
+    # ---- 1) Make the “W1 vs W” & “W2 vs W” plot ----
+    plt.figure(figsize=(8, 6))
+    plt.plot(W_vals, W1_vals, label="ANL W1", color="C0", linewidth=2)
+    plt.plot(W_vals, W2_vals, label="ANL W2", color="C1", linewidth=2)
+    plt.xlabel("W (GeV)")
+    plt.ylabel("Structure functions")
+    plt.title(f"ANL Model: W1 & W2 vs W (at Q²={fixed_Q2:.3f} GeV², E={beam_energy:.1f} GeV)")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    png_name = f"ANL_struct_func_xsecs_Q2={fixed_Q2:.3f}_E={beam_energy:.1f}.png"
+    plt.savefig(png_name, dpi=300)
+    plt.close()
+    print(f"  W1/W2 plot saved as '{png_name}'")
+
+    # ---- 2) Write out the text table: [Q2, W, W1, W2, xsec] ----
+    # Prepare a 2D array of shape (num_points, 5):
+    #   column 0: fixed_Q2  (repeated)
+    #   column 1: W_vals
+    #   column 2: W1_vals
+    #   column 3: W2_vals
+    #   column 4: xsec_vals
+    table_data = np.column_stack((
+        np.full(W_vals.shape, fixed_Q2),
+        W_vals,
+        W1_vals,
+        W2_vals,
+        xsec_vals
+    ))
+
+    txt_name = f"ANL_struct_func_xsecs_Q2={fixed_Q2:.3f}_E={beam_energy:.1f}.txt"
+    header = "Q2\tW\tW1\tW2\tCrossSection"
+    np.savetxt(txt_name, table_data, fmt="%.6e", delimiter="\t", header=header)
+    print(f"  Table saved as '{txt_name}'\n")
+    
+    
+
+def compute_dsigma_dOmega_dEprime(W, Q2, E_beam, theta_deg, file_path="input_data/wempx.dat"):
+    """
+    Compute dσ/dΩ/dE′ using W1 and W2 from the structure function table.
+    θ (in deg) is the scattering angle of the outgoing electron.
+    """
+    from math import sin, cos, radians
+    from scipy.interpolate import RectBivariateSpline
+
+    Mp = 0.9385
+    alpha = 1 / 137.04
+
+    theta = radians(theta_deg)
+    denom = 2 * E_beam * (1 - cos(theta))
+    if denom == 0:
+        return np.nan
+    E_prime = Q2 / denom
+
+    if E_prime <= 0 or E_prime >= E_beam:
+        return np.nan
+
+    data = np.loadtxt(file_path)
+    W_all = data[:, 0]
+    Q2_all = data[:, 1]
+    W1_all = data[:, 2]
+    W2_all = data[:, 3]
+
+    W_unique = np.unique(W_all)
+    Q2_unique = np.unique(Q2_all)
+    nW = len(W_unique)
+    nQ2 = len(Q2_unique)
+    W1_grid = W1_all.reshape(nW, nQ2)
+    W2_grid = W2_all.reshape(nW, nQ2)
+
+    interp_W1 = RectBivariateSpline(W_unique, Q2_unique, W1_grid)
+    interp_W2 = RectBivariateSpline(W_unique, Q2_unique, W2_grid)
+    W1 = interp_W1(W, Q2)[0, 0]
+    W2 = interp_W2(W, Q2)[0, 0]
+
+    prefactor = 4 * alpha**2 * E_prime**2 / Q2**2 * (0.197327**2) * 1e4  # in μb
+    angle_part = 2 * sin(theta / 2)**2 * W1 + cos(theta / 2)**2 * W2
+    return prefactor * angle_part
+
+
+
+def plot_xsect_omega_energy(q2_list, theta_list, E_beam, file_path="input_data/wempx.dat"):
+    """
+    For a list of Q² and theta values, compute and plot dσ/dΩ/dE′ vs W at fixed E_beam.
+    Each theta corresponds to Q² in q2_list.
+    """
+    assert len(q2_list) == len(theta_list), "Q² list and θ list must be of equal length"
+
+    data = np.loadtxt(file_path)
+    W_all = data[:, 0]
+    W_unique = np.unique(W_all)
+    W_min, W_max = np.min(W_unique), np.max(W_unique)
+    W_grid = np.linspace(W_min + 1e-4, W_max - 1e-4, 250)
+
+    fig, axes = plt.subplots(1, len(q2_list), figsize=(5 * len(q2_list),6))
+    if len(q2_list) == 1:
+        axes = [axes]
+
+    for idx, (Q2, theta_deg) in enumerate(zip(q2_list, theta_list)):
+        Y_vals = [compute_dsigma_dOmega_dEprime(W, Q2, E_beam, theta_deg, file_path) for W in W_grid]
+        ax = axes[idx]
+        ax.plot(W_grid, Y_vals, label=rf"$Q^2$ = {Q2} GeV², $\theta$ = {theta_deg:.1f}°", lw=2)
+        ax.set_xlabel("W (GeV)")
+        ax.set_ylabel(r"$d\sigma/d\Omega dE'$ (μb/GeV·sr)")
+        ax.grid(True)
+        ax.legend()
+        if idx == 1:
+            lee2 = np.loadtxt("Lee_exp_data/Lee_exp_data_2.txt")
+            W_lee2 = lee2[:, 5]
+            W = W_lee2 + 0.2
+            xsec_lee2 = lee2[:, -2]/1e3
+            err_lee2 = lee2[:, -1]/1e3
+            ax.errorbar(W, xsec_lee2, yerr=err_lee2, fmt='o', color='black', label='Lee exp Q² #2')
+
+        if idx == 2:
+            lee3 = np.loadtxt("Lee_exp_data/Lee_exp_data_3.txt")
+            W_lee3 = lee3[:, 5]
+            W = W_lee3 - 0.5
+            xsec_lee3 = lee3[:, -2]/1e3
+            err_lee3 = lee3[:, -1]/1e3
+            ax.errorbar(W, xsec_lee3, yerr=err_lee3, fmt='o', color='black', label='Lee exp Q² #3')
+
+    plt.tight_layout()
+    plt.savefig("xsect_dOmega_dEprime_vs_W.png", dpi=200)
+    plt.close()
+    print("Saved plot to xsect_dOmega_dEprime_vs_W.png")
 
     
     #--------------------------------------Auxillary functions fit_exp_data-----------------------------------------# 
@@ -1172,7 +1618,8 @@ def gp_h(q0, q2, a1, a2):
     gi = 2.0 * pm * q0
     ww = (gi + 1.642) / (q2 + 0.376)
     t  = (1.-1./ww)
-    wp = 0.24035*t**3+a1*t**4+a2*t**5
+    #wp = 0.24035*t**3+a1*t**4+a2*t**5
+    wp = a1*t**3+a2*t**7    # THE SHAPE OF SCALING FUNC!
     
     return wp * ww * q2 / (2.0 * pm * q0) * fact(q2, xx)
    
@@ -1342,7 +1789,7 @@ def getCS(what_to_show, q2_in, w_in,
     )
 
 #----------------------------------------------------------------------------------------------------------------------#
-def fit_exp_data(q2_list, beam_energy, exp_file="exp_data_all.dat", output_png="fit_exp_data.png"):
+def fit_exp_data_individual(q2_list, beam_energy, exp_file="bodek_fitting/exp_data_all.dat", output_png="fit_exp_data.png"):
     """
     For each Q² in q2_list, read residuals from exp_file (cols:
       Q2, W, eps, exp_minus_pdf, stat_error, sys_error, ScaleType),
@@ -1369,8 +1816,8 @@ def fit_exp_data(q2_list, beam_energy, exp_file="exp_data_all.dat", output_png="
                 param_dict[q2] = params
         return param_dict
 
-    bg_params_dict = load_param_file("bg_params.dat", 2)
-    res_params_dict = load_param_file("res_params.dat", 11)
+    bg_params_dict = load_param_file("bodek_fitting/bg_res_params/bg_params.dat", 2)
+    res_params_dict = load_param_file("bodek_fitting/bg_res_params/res_params.dat", 11)
 
     # --- load your residual table ---
     data = np.loadtxt(exp_file, delimiter=",", skiprows=1)
@@ -1445,89 +1892,84 @@ def fit_exp_data(q2_list, beam_energy, exp_file="exp_data_all.dat", output_png="
     plt.close(fig)
     print(f"Fit figure saved as {output_png}")
 
+def fit_exp_data_global(q2_list, beam_energy, exp_file="bodek_fitting_all_Q2/exp_data_all.dat", output_png="fit_exp_data_global.png"):
+    """
+    Plot global fit for multiple Q² bins using shared (global) background and resonance parameters.
+    Reads global parameters from:
+      - bg_params_global.dat (2 params)
+      - res_params_global.dat (11 params)
+    """
 
-def exp_minus_resonance(q2_list, beam_energy, output_png="exp_minus_resonance.png"):
-    """
-    For each Q² in q2_list:
-      - Load RGA experimental data.
-      - Load resonance prediction (mean + std).
-      - Subtract resonance mean from the experimental cross sections.
-      - Plot on a dynamic grid (near‐square) canvas:
-          • Original exp data with error bars (red)
-          • Resonance mean ± std band (blue)
-          • Residual (exp − resonance mean) with same error bars (purple)
-    Saves figure as output_png.
-    """
-    # how many panels?
+    # --- Load global parameters ---
+    def load_global_params(path, expected_count):
+        with open(path) as f:
+            for line in f:
+                if line.startswith("#") or not line.strip():
+                    continue
+                params = [float(x.strip()) for x in line.strip().split(",")]
+                if len(params) != expected_count:
+                    raise ValueError(f"Expected {expected_count} parameters in {path}, got {len(params)}")
+                return params
+        raise RuntimeError(f"No valid parameter line found in {path}")
+
+    backParams = load_global_params("bodek_fitting_all_Q2/bg_res_params/bg_params_global.dat", 2)
+    bodekParams = load_global_params("bodek_fitting_all_Q2/bg_res_params/res_params_global.dat", 11)
+
+    # --- Load experimental residuals ---
+    data = np.loadtxt(exp_file, delimiter=",", skiprows=1)
+    Q2_vals, W_all, _, yexp_all, err_stat, err_sys, _ = data.T
+    dy = np.sqrt(err_stat**2 + err_sys**2)
+
+    # --- Dynamic grid layout ---
     n = len(q2_list)
     if n == 0:
-        raise ValueError("Need at least one Q²")
-    # choose a near-square grid
+        raise ValueError("Need at least one Q² to plot.")
     ncols = math.ceil(math.sqrt(n))
     nrows = math.ceil(n / ncols)
 
-    fig, axes = plt.subplots(nrows, ncols,
-                             figsize=(4*ncols, 3*nrows),
-                             squeeze=False)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(5 * ncols, 4 * nrows), squeeze=False)
     plt.subplots_adjust(wspace=0.3, hspace=0.4)
 
+    # --- Plot each Q² panel ---
     for idx, q2 in enumerate(q2_list):
-        row, col = divmod(idx, ncols)
-        ax = axes[row][col]
+        r, c = divmod(idx, ncols)
+        ax = axes[r][c]
 
-        # 1) Exp data
-        exp_file = f"exp_data/InclusiveExpValera_Q2={q2}.dat"
-        df = pd.read_csv(exp_file, sep=r'\s+')
-        W_exp     = df["W"].values
-        sigma_exp = df["sigma"].values * 1e-3
-        sigma_err = np.sqrt(df["error"]**2 + df["sys_error"]**2) * 1e-3
+        mask = np.isclose(Q2_vals, q2)
+        Wd, Yd, dY = W_all[mask], yexp_all[mask], dy[mask]
 
-        # 2) Resonance
-        res_file = f"resonance_contributions/sum_res_Q2={q2}.dat"
-        try:
-            res_data = np.loadtxt(res_file, skiprows=1)
-        except:
-            res_data = np.loadtxt(res_file)
-        W_res    = res_data[:, 0]
-        res_mean = res_data[:, -2] * 1e-3
-        res_std  = res_data[:, -1] * 1e-3
+        ax.errorbar(Wd, Yd, yerr=dY, fmt='D', ms=5, color='red', label='Exp data')
 
-        # interp to exp W
-        res_interp = interp1d(W_res, res_mean, kind='linear',
-                              bounds_error=False, fill_value=np.nan)
-        res_at_exp = res_interp(W_exp)
+        W_max = 2.0
+        Wg = np.linspace(1.15, 2.0, 300)
 
-        # residual
-        residual = sigma_exp - res_at_exp
+        Yfull = [getCS(0, q2, W, True, True, backParams, bodekParams) for W in Wg]
+        Ybkg  = [getCS(1, q2, W, True, True, backParams, bodekParams) for W in Wg]
+        Yres  = [getCS(2, q2, W, True, True, backParams, bodekParams) for W in Wg]
 
-        # plot experiment
-        ax.errorbar(W_exp, sigma_exp, yerr=sigma_err,
-                    fmt='o', ms=2, color='red', label='Experiment')
+        ax.plot(Wg, Yfull, label='Full fit', color='black', lw=2)
+        ax.plot(Wg, Ybkg,  label='Background', linestyle='--', color='orange')
+        ax.plot(Wg, Yres,  label='Resonance', linestyle=':', color='blue')
 
-        # resonance band + mean
-        ax.fill_between(W_res,
-                        res_mean - res_std,
-                        res_mean + res_std,
-                        color='blue', alpha=0.2,
-                        label='Resonance ±1σ')
-        ax.plot(W_res, res_mean, '-', color='blue', lw=2)
-
-        # residual
-        ax.errorbar(W_exp, residual, yerr=sigma_err,
-                    fmt='s', ms=2, color='green', label='Exp – Resonance')
+        # PDF + optional comparison
+        F1i, F2i, _ = get_pdf_interpolators(q2)
+        Ypdf = [compute_cross_section_pdf(W, q2, beam_energy, F1i, F2i) for W in Wg]
+        ax.plot(Wg, Ypdf, label='PDF ONLY', linestyle='-.', color='green')
 
         ax.set_title(f"Q² = {q2:.3f} GeV²")
         ax.set_xlabel("W (GeV)")
         ax.set_ylabel(r"$d\sigma/dW/dQ^2$ (μb/GeV³)")
+        ax.set_xlim(1.1, 2.6)
+        ymax = max(Yd.max(), np.nanmax(Yfull), np.nanmax(Ypdf))
+        ax.set_ylim(0, ymax * 1.1)
         ax.grid(True)
         ax.legend(fontsize="small")
-        ax.set_xlim(W_res.min(), W_res.max()*1.05)
 
-    # turn off any unused axes
-    for empty_idx in range(n, nrows*ncols):
-        fig.delaxes(axes.flat[empty_idx])
+    # Turn off empty subplots
+    for empty in range(n, nrows * ncols):
+        fig.delaxes(axes.flat[empty])
 
     fig.tight_layout()
-    fig.savefig(output_png, dpi=300)
+    fig.savefig(output_png, dpi=150)
     plt.close(fig)
-    print(f"exp_minus_resonance plot saved as {output_png}")
+    print(f"Fit figure saved as {output_png}")

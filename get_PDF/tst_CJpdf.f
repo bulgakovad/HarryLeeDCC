@@ -118,10 +118,10 @@ C             If data file not initialized, do so.
          Elseif (Iset.ge.300 .and. Iset.le.340) Then
             write(nn,'(I3)') Iset
             Tablefile=trim(Flnm(3))//nn(2:3)//'.tbl'
-         Elseif (Iset.ge.400 .and. Iset.le.442) Then
+         Elseif (Iset.ge.400 .and. Iset.le.448) Then
             write(nn,'(I3)') Iset
             Tablefile=trim(Flnm(4))//nn(2:3)//'.tbl'
-         Elseif (Iset.ge.500 .and. Iset.le.542) Then
+         Elseif (Iset.ge.500 .and. Iset.le.548) Then
             write(nn,'(I3)') Iset
             Tablefile=trim(Flnm(5))//nn(2:3)//'.tbl'
          Else
