@@ -2,12 +2,14 @@
 
 echo -n "Enter Q2 value: "
 read Q2
-echo -n "Enter ISET min:"
-read ISET_min
-echo -n "Enter ISET max:"
-read ISET_max
 
-for iset in $(seq $ISET_min $ISET_max); do
+
+for iset in $(seq 400 448); do
+    echo "Running ISET = $iset with Q2 = $Q2"
+    echo -e "$iset\n$Q2" | ./a.out
+done
+
+for iset in $(seq 500 548); do
     echo "Running ISET = $iset with Q2 = $Q2"
     echo -e "$iset\n$Q2" | ./a.out
 done
