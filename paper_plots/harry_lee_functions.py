@@ -635,84 +635,84 @@ def compare_exp_model_pdf_bjorken_x(fixed_Q2, beam_energy,
                                     onepi_file="input_data/wemp-pi.dat",
                                     num_points=200):
 
+
     Mp = 0.9385
-    W_cutoff = 2.0
+    
 
-    # Load strfun data first to determine x-range
-    strfun_file = f"strfun_data/cs_Q2={fixed_Q2}_E={beam_energy}.dat"
-    if not os.path.isfile(strfun_file):
-        raise FileNotFoundError(f"Strfun data not found: {strfun_file}")
-    strfun_data = np.genfromtxt(strfun_file, delimiter="\t", skip_header=1)
-    W_exp = strfun_data[:, 0]
-    sigma_exp = strfun_data[:, 1]
-    sigma_err = strfun_data[:, 2]
-
-    x_exp = fixed_Q2 / (W_exp**2 - Mp**2 + fixed_Q2)
-    dWdx_exp = fixed_Q2 / (2.0 * W_exp * x_exp**2)
-    sigma_dx = sigma_exp * dWdx_exp
-    sigma_dx_err = sigma_err * dWdx_exp
+    valid_Q2_list = [3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]
+    plot_rga = abs(fixed_Q2 - 2.774) < 1e-3
+    only_pdf_and_klim = (fixed_Q2 > 3.0) and any(abs(fixed_Q2 - q2) < 1e-3 for q2 in valid_Q2_list)
 
     # W → x
+    W_cutoff = 2.5 if only_pdf_and_klim else 2.0
     W_vals = np.linspace(1.1, W_cutoff, num_points)
     x_vals = fixed_Q2 / (W_vals**2 - Mp**2 + fixed_Q2)
     mask = x_vals > 0
     W_vals = W_vals[mask]
     x_vals = x_vals[mask]
-    
-    #x_min_data = np.min(x_exp)
 
-    ## Trim range to where strfun data starts
-    #mask_trim = x_vals >= x_min_data
-    #W_vals = W_vals[mask_trim]
-    #x_vals = x_vals[mask_trim]
-
-    anl_xs, onepi_xs = [], []
+    # Load PDFs
+    F1_lo, F2_lo, F1_lo_err, F2_lo_err, _ = get_pdf_interpolators_with_error(fixed_Q2, central_iset=400)
     pdf_lo_xs, pdf_lo_err = [], []
 
-    F1_lo, F2_lo, F1_lo_err, F2_lo_err, _ = get_pdf_interpolators_with_error(fixed_Q2, central_iset=400)
-
     for w in W_vals:
-        try:
-            anl = compute_cross_section(w, fixed_Q2, beam_energy, file_path=interp_file, verbose=False)
-        except Exception:
-            anl = np.nan
-        try:
-            onepi = calculate_1pi_cross_section(w, fixed_Q2, beam_energy, file_path=onepi_file, verbose=False)
-        except Exception:
-            onepi = np.nan
         try:
             lo, lo_err = compute_cross_section_pdf_with_error(w, fixed_Q2, beam_energy, F1_lo, F2_lo, F1_lo_err, F2_lo_err)
         except Exception:
             lo, lo_err = np.nan, np.nan
-
-        anl_xs.append(anl)
-        onepi_xs.append(onepi)
         pdf_lo_xs.append(lo)
         pdf_lo_err.append(lo_err)
-        
+
     jacobian = fixed_Q2 / (2.0 * W_vals * x_vals**2)
-    anl_xs *= jacobian
-    onepi_xs *= jacobian
-    pdf_lo_xs *= jacobian
-    pdf_lo_err *= jacobian
+    pdf_lo_xs = np.array(pdf_lo_xs) * jacobian
+    pdf_lo_err = np.array(pdf_lo_err) * jacobian
 
+    anl_xs, onepi_xs = [], []
+    if not only_pdf_and_klim:
+        # Load strfun data
+        strfun_file = f"strfun_data/cs_Q2={fixed_Q2}_E={beam_energy}.dat"
+        if not os.path.isfile(strfun_file):
+            raise FileNotFoundError(f"Strfun data not found: {strfun_file}")
+        strfun_data = np.genfromtxt(strfun_file, delimiter="\t", skip_header=1)
+        W_exp = strfun_data[:, 0]
+        sigma_exp = strfun_data[:, 1]
+        sigma_err = strfun_data[:, 2]
 
-    # Smooth interpolation of strfun data
-    sort_idx = np.argsort(x_exp)
-    x_sorted = x_exp[sort_idx]
-    sigma_sorted = sigma_dx[sort_idx]
-    err_sorted = sigma_dx_err[sort_idx]
+        x_exp = fixed_Q2 / (W_exp**2 - Mp**2 + fixed_Q2)
+        dWdx_exp = fixed_Q2 / (2.0 * W_exp * x_exp**2)
+        sigma_dx = sigma_exp * dWdx_exp
+        sigma_dx_err = sigma_err * dWdx_exp
 
-    cs_interp = interp1d(x_sorted, sigma_sorted, kind='cubic', bounds_error=False, fill_value=np.nan)
-    err_interp = interp1d(x_sorted, err_sorted, kind='cubic', bounds_error=False, fill_value=np.nan)
+        # Interpolation of strfun data
+        sort_idx = np.argsort(x_exp)
+        x_sorted = x_exp[sort_idx]
+        sigma_sorted = sigma_dx[sort_idx]
+        err_sorted = sigma_dx_err[sort_idx]
 
-    cs_vals = cs_interp(x_vals)
-    err_vals = err_interp(x_vals)
+        cs_interp = interp1d(x_sorted, sigma_sorted, kind='cubic', bounds_error=False, fill_value=np.nan)
+        err_interp = interp1d(x_sorted, err_sorted, kind='cubic', bounds_error=False, fill_value=np.nan)
 
-    # Klimenko data if Q² ≈ 2.774
-    plot_rga = abs(fixed_Q2 - 2.774) < 1e-3
-    if plot_rga:
-        klim_file = "exp_data/InclusiveExpValera_Q2=2.774.dat"
+        cs_vals = cs_interp(x_vals)
+        err_vals = err_interp(x_vals)
+
+        # Load ANL + 1π
+        for w in W_vals:
+            try:
+                anl = compute_cross_section(w, fixed_Q2, beam_energy, file_path=interp_file, verbose=False)
+            except Exception:
+                anl = np.nan
+            try:
+                onepi = calculate_1pi_cross_section(w, fixed_Q2, beam_energy, file_path=onepi_file, verbose=False)
+            except Exception:
+                onepi = np.nan
+            anl_xs.append(anl)
+            onepi_xs.append(onepi)
+        anl_xs = np.array(anl_xs) * jacobian
+        onepi_xs = np.array(onepi_xs) * jacobian
+
+    # Klimenko data if needed
+    if plot_rga or only_pdf_and_klim:
+        klim_file = f"exp_data/InclusiveExpValera_Q2={fixed_Q2}.dat"
         if not os.path.isfile(klim_file):
             raise FileNotFoundError("Klimenko RGA data not found.")
         klim = np.genfromtxt(klim_file, delimiter="\t", skip_header=1)
@@ -728,41 +728,36 @@ def compare_exp_model_pdf_bjorken_x(fixed_Q2, beam_energy,
 
     # ----------- PLOT ------------
     plt.figure(figsize=(8, 6))
-    
     legend_text = f"$Q^2$ = {fixed_Q2:.3f} GeV$^2$, $E_{{beam}}$ = {beam_energy:.2f} GeV"
     plt.plot([], [], ' ', label=legend_text)
 
-    plt.plot(x_vals, anl_xs, label="ANL-Osaka model: full cross section", color="black")
-    plt.plot(x_vals, onepi_xs, "--", label="ANL-Osaka model: $1\pi$ contribution", color="black", ls="--")
+    if not only_pdf_and_klim:
+        plt.plot(x_vals, anl_xs, label="ANL-Osaka model: full cross section", color="black")
+        plt.plot(x_vals, onepi_xs, "--", label="ANL-Osaka model: $1\\pi$ contribution", color="black", ls="--")
+        plt.plot(x_vals, cs_vals, color="grey", lw=1, label="CLAS+World data (smoothed)")
+        plt.fill_between(x_vals, cs_vals - err_vals, cs_vals + err_vals, color="grey", alpha=0.3)
 
     plt.plot(x_vals, pdf_lo_xs, label="LO PDF (CJ15)", color="blue", ls="dotted", lw=1)
     plt.fill_between(x_vals, pdf_lo_xs - pdf_lo_err, pdf_lo_xs + pdf_lo_err, color="blue", alpha=0.3)
 
-    plt.plot(x_vals, cs_vals, color="grey", lw=1, label="CLAS+World data (smoothed)")
-    plt.fill_between(x_vals, cs_vals - err_vals, cs_vals + err_vals, color="grey", alpha=0.3)
-
-    if plot_rga:
+    if plot_rga or only_pdf_and_klim:
         plt.errorbar(x_klim, sigma_klim_dx, yerr=err_klim_dx, fmt="s", ms=3, capsize=2, color="magenta", label="RGA data (V. Klimenko)")
 
     plt.xlabel("Bjorken x")
     plt.ylabel(r"$d\sigma/dQ^2dx$ [$\mu b/GeV^2$]")
     plt.grid(True)
     plt.legend(fontsize="small")
-    
-    
-    xlim_min = np.min(x_vals)*0.95
-    xlim_max = np.max(x_exp)*1.05
+
+    # Axis limits
+    xlim_min = np.min(x_vals) * 0.95
+    xlim_max = np.max(x_vals) * 1.05
     ylim_max = 1.05 * np.nanmax([
-        np.nanmax(anl_xs), np.nanmax(onepi_xs),
         np.nanmax(pdf_lo_xs + pdf_lo_err),
-        np.nanmax(cs_vals + err_vals)
-    ])
-    
+        np.nanmax(sigma_klim_dx) if (plot_rga or only_pdf_and_klim) else 0,
+        np.nanmax(cs_vals + err_vals) if not only_pdf_and_klim else 0,
+        np.nanmax(anl_xs) if not only_pdf_and_klim else 0])
     plt.xlim(xlim_min, xlim_max)
     plt.ylim(0, ylim_max)
-    plt.ylabel(r"$d\sigma/dQ^2dx$ [$\mu b/GeV^2$]")
-    plt.grid(True)
-    plt.legend(fontsize="small")
     plt.tight_layout()
 
     # Save plot
@@ -773,13 +768,18 @@ def compare_exp_model_pdf_bjorken_x(fixed_Q2, beam_energy,
     print("Saved →", fname)
 
 
+
 def compare_exp_model_pdf_nachtmann_xi(fixed_Q2, beam_energy,
                                        interp_file="input_data/wempx.dat",
                                        onepi_file="input_data/wemp-pi.dat",
                                        num_points=200):
+    import os
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from scipy.interpolate import interp1d
 
     Mp = 0.9385
-    W_cutoff = 2.0
+    
 
     def xi_from_x(x, Q2):
         t = 4 * x**2 * Mp**2 / Q2
@@ -792,24 +792,12 @@ def compare_exp_model_pdf_nachtmann_xi(fixed_Q2, beam_energy,
     def dWdx(W, x):
         return (W**2 + fixed_Q2 - Mp**2) / (2.0 * W * x)
 
-    # Load strfun data
-    strfun_file = f"strfun_data/cs_Q2={fixed_Q2}_E={beam_energy}.dat"
-    if not os.path.isfile(strfun_file):
-        raise FileNotFoundError(f"Strfun data not found: {strfun_file}")
-    strfun_data = np.genfromtxt(strfun_file, delimiter="\t", skip_header=1)
-    W_exp = strfun_data[:, 0]
-    sigma_exp = strfun_data[:, 1]
-    sigma_err = strfun_data[:, 2]
-
-    x_exp = fixed_Q2 / (W_exp**2 - Mp**2 + fixed_Q2)
-    xi_exp = xi_from_x(x_exp, fixed_Q2)
-    dWdx_exp = dWdx(W_exp, x_exp)
-    dxdxi_exp = dxdxi(x_exp, fixed_Q2)
-    dWdXi_exp = dWdx_exp * dxdxi_exp
-    sigma_dxi = sigma_exp * dWdXi_exp
-    sigma_dxi_err = sigma_err * dWdXi_exp
+    valid_Q2_list = [3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]
+    plot_rga = abs(fixed_Q2 - 2.774) < 1e-3
+    only_pdf_and_klim = (fixed_Q2 > 3.0) and any(abs(fixed_Q2 - q2) < 1e-3 for q2 in valid_Q2_list)
 
     # W → x → ξ
+    W_cutoff = 2.5 if only_pdf_and_klim else 2.0
     W_vals = np.linspace(1.1, W_cutoff, num_points)
     x_vals = fixed_Q2 / (W_vals**2 - Mp**2 + fixed_Q2)
     mask = x_vals > 0
@@ -817,14 +805,6 @@ def compare_exp_model_pdf_nachtmann_xi(fixed_Q2, beam_energy,
     x_vals = x_vals[mask]
     xi_vals = xi_from_x(x_vals, fixed_Q2)
 
-   # # Trim x-range to match experimental ξ-range
-   # xi_min_data = np.min(xi_exp)
-   # mask_trim = xi_vals >= xi_min_data
-   # W_vals = W_vals[mask_trim]
-   # x_vals = x_vals[mask_trim]
-   # xi_vals = xi_vals[mask_trim]
-
-    # Interpolators
     F1_lo, F2_lo, F1_lo_err, F2_lo_err, _ = get_pdf_interpolators_with_error(fixed_Q2, central_iset=400)
 
     anl_xs, onepi_xs = [], []
@@ -832,56 +812,70 @@ def compare_exp_model_pdf_nachtmann_xi(fixed_Q2, beam_energy,
 
     for w in W_vals:
         try:
-            anl = compute_cross_section(w, fixed_Q2, beam_energy, file_path=interp_file, verbose=False)
-        except Exception:
-            anl = np.nan
-        try:
-            onepi = calculate_1pi_cross_section(w, fixed_Q2, beam_energy, file_path=onepi_file, verbose=False)
-        except Exception:
-            onepi = np.nan
-        try:
             lo, lo_err = compute_cross_section_pdf_with_error(w, fixed_Q2, beam_energy, F1_lo, F2_lo, F1_lo_err, F2_lo_err)
         except Exception:
             lo, lo_err = np.nan, np.nan
-
-        anl_xs.append(anl)
-        onepi_xs.append(onepi)
         pdf_lo_xs.append(lo)
         pdf_lo_err.append(lo_err)
 
-    # Apply Jacobian dW/dξ
+        if not only_pdf_and_klim:
+            try:
+                anl = compute_cross_section(w, fixed_Q2, beam_energy, file_path=interp_file, verbose=False)
+            except Exception:
+                anl = np.nan
+            try:
+                onepi = calculate_1pi_cross_section(w, fixed_Q2, beam_energy, file_path=onepi_file, verbose=False)
+            except Exception:
+                onepi = np.nan
+            anl_xs.append(anl)
+            onepi_xs.append(onepi)
+
     dWdx_vals = dWdx(W_vals, x_vals)
     dxdxi_vals = dxdxi(x_vals, fixed_Q2)
     dWdXi_vals = dWdx_vals * dxdxi_vals
-
-    anl_xs = np.array(anl_xs) * dWdXi_vals
-    onepi_xs = np.array(onepi_xs) * dWdXi_vals
     pdf_lo_xs = np.array(pdf_lo_xs) * dWdXi_vals
     pdf_lo_err = np.array(pdf_lo_err) * dWdXi_vals
 
-    # Smooth interpolation of strfun data
-    sort_idx = np.argsort(xi_exp)
-    xi_sorted = xi_exp[sort_idx]
-    sigma_sorted = sigma_dxi[sort_idx]
-    err_sorted = sigma_dxi_err[sort_idx]
+    if not only_pdf_and_klim:
+        anl_xs = np.array(anl_xs) * dWdXi_vals
+        onepi_xs = np.array(onepi_xs) * dWdXi_vals
 
-    cs_interp = interp1d(xi_sorted, sigma_sorted, kind='cubic', bounds_error=False, fill_value=np.nan)
-    err_interp = interp1d(xi_sorted, err_sorted, kind='cubic', bounds_error=False, fill_value=np.nan)
+        strfun_file = f"strfun_data/cs_Q2={fixed_Q2}_E={beam_energy}.dat"
+        if not os.path.isfile(strfun_file):
+            raise FileNotFoundError(f"Strfun data not found: {strfun_file}")
+        strfun_data = np.genfromtxt(strfun_file, delimiter="\t", skip_header=1)
+        W_exp = strfun_data[:, 0]
+        sigma_exp = strfun_data[:, 1]
+        sigma_err = strfun_data[:, 2]
 
-    cs_vals = cs_interp(xi_vals)
-    err_vals = err_interp(xi_vals)
+        x_exp = fixed_Q2 / (W_exp**2 - Mp**2 + fixed_Q2)
+        xi_exp = xi_from_x(x_exp, fixed_Q2)
+        dWdx_exp = dWdx(W_exp, x_exp)
+        dxdxi_exp = dxdxi(x_exp, fixed_Q2)
+        dWdXi_exp = dWdx_exp * dxdxi_exp
+        sigma_dxi = sigma_exp * dWdXi_exp
+        sigma_dxi_err = sigma_err * dWdXi_exp
 
-    # Klimenko data (if Q² = 2.774)
-    plot_rga = abs(fixed_Q2 - 2.774) < 1e-3 
-    if plot_rga:
-        klim_file = "exp_data/InclusiveExpValera_Q2=2.774.dat"
+        sort_idx = np.argsort(xi_exp)
+        xi_sorted = xi_exp[sort_idx]
+        sigma_sorted = sigma_dxi[sort_idx]
+        err_sorted = sigma_dxi_err[sort_idx]
+
+        cs_interp = interp1d(xi_sorted, sigma_sorted, kind='cubic', bounds_error=False, fill_value=np.nan)
+        err_interp = interp1d(xi_sorted, err_sorted, kind='cubic', bounds_error=False, fill_value=np.nan)
+
+        cs_vals = cs_interp(xi_vals)
+        err_vals = err_interp(xi_vals)
+
+    if plot_rga or only_pdf_and_klim:
+        klim_file = f"exp_data/InclusiveExpValera_Q2={fixed_Q2}.dat"
         if not os.path.isfile(klim_file):
             raise FileNotFoundError("Klimenko RGA data not found.")
         klim = np.genfromtxt(klim_file, delimiter="\t", skip_header=1)
         W_klim = klim[:, 0]
         sigma_klim = klim[:, 2] * 1e-3
         err_stat = klim[:, 3] * 1e-3
-        err_sys  = klim[:, 4] * 1e-3
+        err_sys = klim[:, 4] * 1e-3
         err_total = np.sqrt(err_stat**2 + err_sys**2)
 
         x_klim = fixed_Q2 / (W_klim**2 - Mp**2 + fixed_Q2)
@@ -894,30 +888,30 @@ def compare_exp_model_pdf_nachtmann_xi(fixed_Q2, beam_energy,
 
     # Plot
     plt.figure(figsize=(8, 6))
-    
     legend_text = f"$Q^2$ = {fixed_Q2:.3f} GeV$^2$, $E_{{beam}}$ = {beam_energy:.2f} GeV"
     plt.plot([], [], ' ', label=legend_text)
 
-    plt.plot(xi_vals, anl_xs, label="ANL-Osaka model: full cross section", color="black")
-    plt.plot(xi_vals, onepi_xs, "--", label="ANL-Osaka model: $1\\pi$ contribution", color="black", ls="--")
+    if not only_pdf_and_klim:
+        plt.plot(xi_vals, anl_xs, label="ANL-Osaka model: full cross section", color="black")
+        plt.plot(xi_vals, onepi_xs, "--", label="ANL-Osaka model: $1\\pi$ contribution", color="black", ls="--")
+        plt.plot(xi_vals, cs_vals, color="grey", lw=1, label="CLAS+World data (smoothed)")
+        plt.fill_between(xi_vals, cs_vals - err_vals, cs_vals + err_vals, color="grey", alpha=0.3)
 
     plt.plot(xi_vals, pdf_lo_xs, label="LO PDF (CJ15)", color="blue", ls="dotted", lw=1)
     plt.fill_between(xi_vals, pdf_lo_xs - pdf_lo_err, pdf_lo_xs + pdf_lo_err, color="blue", alpha=0.3)
 
-    plt.plot(xi_vals, cs_vals, color="grey", lw=1, label="CLAS+World data (smoothed)")
-    plt.fill_between(xi_vals, cs_vals - err_vals, cs_vals + err_vals, color="grey", alpha=0.3)
-
-    if plot_rga:
+    if plot_rga or only_pdf_and_klim:
         plt.errorbar(xi_klim, sigma_klim_dxi, yerr=err_klim_dxi, fmt="s", ms=3, capsize=2, color="magenta", label="RGA data (V. Klimenko)")
 
     plt.xlabel("Nachtmann ξ")
-    
-    xlim_min = np.min(xi_vals)*0.95
-    xlim_max = np.max(xi_exp)*1.05
+
+    xlim_min = np.min(xi_vals) * 0.95
+    xlim_max = np.max(xi_vals) * 1.05
     ylim_max = 1.05 * np.nanmax([
-        np.nanmax(anl_xs), np.nanmax(onepi_xs),
         np.nanmax(pdf_lo_xs + pdf_lo_err),
-        np.nanmax(cs_vals + err_vals)
+        np.nanmax(sigma_klim_dxi) if (plot_rga or only_pdf_and_klim) else 0,
+        np.nanmax(cs_vals + err_vals) if not only_pdf_and_klim else 0,
+        np.nanmax(anl_xs) if not only_pdf_and_klim else 0
     ])
     plt.xlim(xlim_min, xlim_max)
     plt.ylim(0, ylim_max)
@@ -925,11 +919,9 @@ def compare_exp_model_pdf_nachtmann_xi(fixed_Q2, beam_energy,
     plt.grid(True)
     plt.legend(fontsize="small")
     plt.tight_layout()
-    
-     # Save plot
+
     os.makedirs("compare_strfun_x_xi", exist_ok=True)
     fname = f"compare_strfun_x_xi/compare_strfun_vs_xi_Q2={fixed_Q2}_E={beam_energy}.pdf"
     plt.savefig(fname, dpi=300)
     plt.close()
     print("Saved →", fname)
-
