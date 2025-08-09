@@ -2,9 +2,11 @@ import numpy as np
 import math
 from scipy.interpolate import RectBivariateSpline, interp1d
 from scipy.interpolate import CubicSpline
+from scipy.integrate import quad
 import matplotlib.pyplot as plt
 import os
 import pandas as pd
+from scipy.interpolate import PchipInterpolator
 
 def interpolate_structure_functions(file_path, target_W, target_Q2):
     """
@@ -348,10 +350,6 @@ def compare_strfun(fixed_Q2, beam_energy,
     Compare ANL-Osaka, 1π, PDF (LO and NLO), and data (strfun + RGA) cross sections up to W=2 GeV.
     """
 
-    from scipy.interpolate import interp1d
-    import matplotlib.pyplot as plt
-    import numpy as np
-    import os
 
     W_cutoff = 2.0
     data = np.loadtxt(interp_file)
@@ -925,3 +923,321 @@ def compare_exp_model_pdf_nachtmann_xi(fixed_Q2, beam_energy,
     plt.savefig(fname, dpi=300)
     plt.close()
     print("Saved →", fname)
+    
+    
+#----------------------------------------------Why am I doing this?--------------------------------------------------
+def generate_pseudodata(q2_list, beam_energy,
+                        interp_file="input_data/wempx.dat",
+                        onepi_file="input_data/wemp-pi.dat",
+                        strfun_folder="strfun_data",
+                        exp_folder="exp_data",
+                        num_points=200):
+    """
+    Generates two PDF plots:
+      1) Data + 1π contribution
+      2) (Data - 1π)
+    Also saves a .dat file:
+      Q2   W   cross_section (data-1π)   error
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import os
+
+    nQ2 = len(q2_list)
+
+    # ---------------------------
+    # FIGURE 1: Data + 1π
+    # ---------------------------
+    fig1, axes1 = plt.subplots(nQ2, 1, figsize=(8, 3 * nQ2), sharex=True)
+    if nQ2 == 1:
+        axes1 = [axes1]
+
+    # ---------------------------
+    # FIGURE 2: Data - 1π
+    # ---------------------------
+    fig2, axes2 = plt.subplots(nQ2, 1, figsize=(8, 3 * nQ2), sharex=True)
+    if nQ2 == 1:
+        axes2 = [axes2]
+
+    all_rows = []  # For saving data - 1π
+
+    for i, q2 in enumerate(q2_list):
+        ax1 = axes1[i]
+        ax2 = axes2[i]
+
+        W_cutoff = 2.0
+        W_vals = np.linspace(1.1, W_cutoff, num_points)
+
+        # --- Load data ---
+        if abs(q2 - 2.774) < 1e-3:
+            data_file = os.path.join(exp_folder, "InclusiveExpValera_Q2=2.774.dat")
+            if not os.path.isfile(data_file):
+                raise FileNotFoundError(f"Missing Klimenko data: {data_file}")
+            data = np.genfromtxt(data_file, delimiter="\t", skip_header=1)
+            W_data = data[:, 0]
+            sigma_data = data[:, 2] * 1e-3  # nb → μb
+            sigma_err = np.sqrt(data[:, 3]**2 + data[:, 4]**2) * 1e-3
+            label_data = "RGA data (V. Klimenko)"
+        else:
+            data_file = os.path.join(strfun_folder, f"cs_Q2={q2}_E={beam_energy}.dat")
+            if not os.path.isfile(data_file):
+                raise FileNotFoundError(f"Missing strfun data: {data_file}")
+            data = np.genfromtxt(data_file, delimiter="\t", skip_header=1)
+            W_data = data[:, 0]
+            sigma_data = data[:, 1]
+            sigma_err = data[:, 2]
+            label_data = "CLAS+World data"
+
+        # --- Interpolate 1π at data points ---
+        onepi_at_data = []
+        for w in W_data:
+            try:
+                val = calculate_1pi_cross_section(w, q2, beam_energy,
+                                                  file_path=onepi_file, verbose=False)
+            except Exception:
+                val = np.nan
+            onepi_at_data.append(val)
+        onepi_at_data = np.array(onepi_at_data)
+
+        # --- Interpolate 1π curve ---
+        onepi_curve = []
+        for w in W_vals:
+            try:
+                val = calculate_1pi_cross_section(w, q2, beam_energy,
+                                                  file_path=onepi_file, verbose=False)
+            except Exception:
+                val = np.nan
+            onepi_curve.append(val)
+        onepi_curve = np.array(onepi_curve)
+
+        # --- Difference ---
+        diff = sigma_data - onepi_at_data
+        for w, val, err in zip(W_data, diff, sigma_err):
+            all_rows.append([q2, w, val, err])
+
+        # ---- PLOT 1: Data + 1π ----
+        ax1.errorbar(W_data, sigma_data, yerr=sigma_err, fmt="o", ms=3, capsize=2,
+                     color="green", label=label_data)
+        ax1.plot(W_vals, onepi_curve, "--", color="black", label="ANL-Osaka: 1π contribution")
+        ax1.set_ylabel(r"$\sigma$ ($\mu b / \mathrm{GeV}^3$)")
+        ax1.grid(True)
+        ax1.legend(fontsize="small")
+        ax1.set_title(f"$Q^2 = {q2:.3f}$ GeV$^2$, $E = {beam_energy:.2f}$ GeV")
+
+        # ---- PLOT 2: Data - 1π ----
+        ax2.errorbar(W_data, diff, yerr=sigma_err, fmt="s", ms=3, capsize=2,
+                     color="blue", label="(data - 1π)")
+        ax2.axhline(0, color="black", linestyle="--", linewidth=1)
+        ax2.set_ylabel(r"$(\sigma_\mathrm{data} - \sigma_{1\pi})$ ($\mu b / \mathrm{GeV}^3$)")
+        ax2.grid(True)
+        ax2.legend(fontsize="small")
+        ax2.set_title(f"$Q^2 = {q2:.3f}$ GeV$^2$, $E = {beam_energy:.2f}$ GeV")
+
+    axes1[-1].set_xlabel("W (GeV)")
+    axes2[-1].set_xlabel("W (GeV)")
+
+    os.makedirs("pseudodata_plots", exist_ok=True)
+
+    # Save both PDFs
+    file1 = f"pseudodata_plots/pseudodata_E={beam_energy}_Q2list.pdf"
+    file2 = f"pseudodata_plots/pseudodata_diff_E={beam_energy}_Q2list.pdf"
+    plt.figure(fig1.number)
+    plt.tight_layout()
+    fig1.savefig(file1, dpi=300)
+    plt.close(fig1)
+    print("Saved →", file1)
+
+    plt.figure(fig2.number)
+    plt.tight_layout()
+    fig2.savefig(file2, dpi=300)
+    plt.close(fig2)
+    print("Saved →", file2)
+
+    # Save difference data
+    os.makedirs("pseudodata_tables", exist_ok=True)
+    out_file = f"pseudodata_tables/pseudodata_diff_E={beam_energy}_Q2list.dat"
+    header = "Q2\tW\tcross_section\terror"
+    np.savetxt(out_file, np.array(all_rows), fmt="%.6e", delimiter="\t", header=header)
+    print("Saved →", out_file)
+
+
+#-------------------------------------------------TMC-----------------------------------------------------------
+
+Mp = 0.9385  # proton mass in GeV
+
+def bjorken_to_nachtmann_xi(x, Q2):
+    """Compute Nachtmann variable ξ from Bjorken x and Q²."""
+    return (2 * x) / (1 + np.sqrt(1 + 4 * x**2 * Mp**2 / Q2))
+
+def r_factor(x, Q2):
+    """Compute r = sqrt(1 + 4x²M²/Q²)."""
+    return np.sqrt(1 + 4 * x**2 * Mp**2 / Q2)
+
+# -----------------------------------------------------------
+# Auxiliary functions h₂ and g₂
+# -----------------------------------------------------------
+
+def h2_xi(xi, Q2, F2_xi_func):
+    """
+    Compute h₂(ξ, Q²) = ∫_ξ^1 [F₂⁽⁰⁾(u, Q²) / u²] du
+    """
+    integrand = lambda u: F2_xi_func(u) / (u**2)
+    return quad(integrand, xi, 1, limit=200)[0]
+
+def g2_xi(xi, Q2, F2_xi_func):
+    """
+    Compute g₂(ξ, Q²) = ∫_ξ^1 (v - ξ)/v² * F₂⁽⁰⁾(v, Q²) dv
+    """
+    integrand = lambda v: (v - xi) * F2_xi_func(v) / (v**2)
+    return quad(integrand, xi, 1, limit=200)[0]
+
+# -----------------------------------------------------------
+# Main function with TMC
+# -----------------------------------------------------------
+
+def bjorken_to_nachtmann_xi(x, Q2):
+    return (2 * x) / (1 + np.sqrt(1 + 4 * x**2 * Mp**2 / Q2))
+
+def r_factor(x, Q2):
+    return np.sqrt(1 + 4 * x**2 * Mp**2 / Q2)
+
+def h2_xi(xi, Q2, F2_xi_func):
+    integrand = lambda u: max(F2_xi_func(u), 0) / (u**2)
+    return quad(integrand, xi, 1, limit=200)[0]
+
+def g2_xi(xi, Q2, F2_xi_func):
+    integrand = lambda v: (v - xi) * max(F2_xi_func(v), 0) / (v**2)
+    return quad(integrand, xi, 1, limit=200)[0]
+
+def get_pdf_interpolators_with_error_TMC(fixed_Q2, central_iset=500, debug=False):
+    """
+    Compute TMC-corrected F1 and F2 in x-space, map to W-space, and return interpolators.
+    """
+    F1_x_func, F2_x_func, F1_err_func, F2_err_func, W_sorted = \
+        get_pdf_interpolators_with_error(fixed_Q2, central_iset)
+
+    # Define x-grid corresponding to W ∈ [1, 1.8]
+    W_min, W_max = 1.0, 1.8
+    x_min = fixed_Q2 / (fixed_Q2 + (W_max**2 - Mp**2))
+    x_max = fixed_Q2 / (fixed_Q2 + (W_min**2 - Mp**2))
+    x_grid = np.linspace(x_min, x_max, 300)
+
+    # Get uncorrected F2(x)
+    W_from_x = np.sqrt(Mp**2 + fixed_Q2 * (1 - x_grid) / x_grid)
+    F2_vals = F2_x_func(W_from_x)
+
+    # Build F2^(0)(ξ) interpolator
+    xi_grid = bjorken_to_nachtmann_xi(x_grid, fixed_Q2)
+    sort_idx = np.argsort(xi_grid)
+    xi_sorted = xi_grid[sort_idx]
+    F2_sorted = F2_vals[sort_idx]
+    F2_xi_func = PchipInterpolator(xi_sorted, np.maximum(F2_sorted, 0))
+
+    # TMC-corrected values
+    F2_TMC_vals = []
+    for x in x_grid:
+        xi = bjorken_to_nachtmann_xi(x, fixed_Q2)
+        r = r_factor(x, fixed_Q2)
+        h2_val = h2_xi(xi, fixed_Q2, F2_xi_func)
+        g2_val = g2_xi(xi, fixed_Q2, F2_xi_func)
+
+        term1 = (x**2 / (xi**2 * r**3)) * F2_xi_func(xi)
+        term2 = (6 * Mp**2 * x**3 / (fixed_Q2 * r**4)) * h2_val
+        term3 = (12 * Mp**4 * x**4 / (fixed_Q2**2 * r**5)) * g2_val
+        F2_corr = term1 + term2 + term3
+
+        if debug and x == x_grid[len(x_grid)//2]:
+            print(f"[DEBUG] Q²={fixed_Q2} GeV², x={x:.4f}, ξ={xi:.4f}")
+            print(f"  term1 = {term1:.5f}, term2 = {term2:.5f}, term3 = {term3:.5f}")
+            print(f"  F2^(0)(ξ) = {F2_xi_func(xi):.5f}, F2_TMC = {F2_corr:.5f}")
+
+        F2_TMC_vals.append(F2_corr)
+
+    # Create interpolator in W-space
+    W_grid = np.sqrt(Mp**2 + fixed_Q2 * (1 - x_grid) / x_grid)
+    sort_w_idx = np.argsort(W_grid)
+    F2_TMC_interp = interp1d(W_grid[sort_w_idx], np.array(F2_TMC_vals)[sort_w_idx],
+                             kind='cubic', bounds_error=False, fill_value="extrapolate")
+
+    # For now, return unmodified F1 as placeholder (TMC for F1 can be added similarly)
+    return F1_x_func, F2_TMC_interp, F1_err_func, F2_err_func, W_grid[sort_w_idx]
+
+
+def compare_f2_tmc(q2_vals):
+    """
+    Plot LO and NLO uncorrected and TMC-corrected structure function F2
+    with error bands on a shared canvas with subplots for multiple Q² values
+    (W ∈ [1, 1.8] GeV).
+    """
+    W_min, W_max = 1.0, 1.8
+    n_q2 = len(q2_vals)
+    n_cols = 3
+    n_rows = int(np.ceil(n_q2 / n_cols))
+
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 4 * n_rows))
+    axes = np.array(axes).reshape(n_rows, n_cols)
+
+    for idx, Q2 in enumerate(q2_vals):
+        row, col = divmod(idx, n_cols)
+        ax = axes[row, col]
+
+        try:
+            # -------- LO PDFs (iset=400) --------
+            _, F2_uncorr_LO, _, F2_err_LO, _ = get_pdf_interpolators_with_error(Q2, 400)
+            _, F2_TMC_LO, _, F2_err_TMC_LO, _ = get_pdf_interpolators_with_error_TMC(Q2, 400)
+
+            # -------- NLO PDFs (iset=500) --------
+            _, F2_uncorr_NLO, _, F2_err_NLO, _ = get_pdf_interpolators_with_error(Q2, 500)
+            _, F2_TMC_NLO, _, F2_err_TMC_NLO, _ = get_pdf_interpolators_with_error_TMC(Q2, 500)
+
+            # Define W grid in [W_min, W_max]
+            W_plot = np.linspace(W_min, W_max, 400)
+
+            # --- LO ---
+            F2u_LO = F2_uncorr_LO(W_plot)
+            F2u_err_LO = F2_err_LO(W_plot)
+            F2c_LO = F2_TMC_LO(W_plot)
+            F2c_err_LO = F2_err_TMC_LO(W_plot)
+
+            # --- NLO ---
+            F2u_NLO = F2_uncorr_NLO(W_plot)
+            F2u_err_NLO = F2_err_NLO(W_plot)
+            F2c_NLO = F2_TMC_NLO(W_plot)
+            F2c_err_NLO = F2_err_TMC_NLO(W_plot)
+
+            # -------- Plot LO --------
+            ax.plot(W_plot, F2u_LO, label=r"LO $F_2^{(0)}$", color='blue', lw=1)
+            ax.fill_between(W_plot, F2u_LO - F2u_err_LO, F2u_LO + F2u_err_LO, color='blue', alpha=0.3)
+            #ax.plot(W_plot, F2c_LO, label=r"LO $F_2^{TMC}$", color='blue', linestyle='--', lw=1)
+            #ax.fill_between(W_plot, F2c_LO - F2c_err_LO, F2c_LO + F2c_err_LO, color='blue', alpha=0.15)
+
+            # -------- Plot NLO --------
+            ax.plot(W_plot, F2u_NLO, label=r"NLO $F_2^{(0)}$", color='red', lw=1)
+            ax.fill_between(W_plot, F2u_NLO - F2u_err_NLO, F2u_NLO + F2u_err_NLO, color='red', alpha=0.3)
+            #ax.plot(W_plot, F2c_NLO, label=r"NLO $F_2^{TMC}$", color='red', linestyle='--', lw=1)
+            #ax.fill_between(W_plot, F2c_NLO - F2c_err_NLO, F2c_NLO + F2c_err_NLO, color='red', alpha=0.15)
+
+            # -------- Axes formatting --------
+            ax.set_title(fr"$Q^2 = {Q2}$ GeV$^2$")
+            ax.set_xlim(W_min, W_max)
+            ax.set_xlabel(r"$W$ [GeV]")
+            ax.set_ylabel(r"$F_2(W)$")
+            ax.grid(True)
+            ax.legend(fontsize=8)
+        except Exception as err:
+            ax.text(0.5, 0.5, f"Error Q²={Q2}\n{err}", transform=ax.transAxes,
+                    ha='center', va='center', color='red')
+            ax.axis('off')
+
+    for i in range(len(q2_vals), n_rows * n_cols):
+        row, col = divmod(i, n_cols)
+        axes[row, col].axis('off')
+
+    plt.tight_layout()
+    plt.savefig("F2_TMC_LO_vs_NLO.pdf", format="pdf")
+    print("Saved F2 TMC comparison plot to F2_TMC_LO_vs_NLO.pdf")
+    plt.show()
+    
+    
+    
+

@@ -353,7 +353,7 @@ def compare_strfun(fixed_Q2, beam_energy,
                    onepi_file="input_data/wemp-pi.dat",
                    num_points=200):
     """
-    Compare ANL-Osaka, PDF, 1π, and data (strfun + RGA) cross sections up to W=2 GeV.
+    Compare ANL-Osaka, 1π, and data (strfun + RGA) cross sections up to W=2 GeV.
     """
 
     W_cutoff = 2.0
@@ -364,22 +364,13 @@ def compare_strfun(fixed_Q2, beam_energy,
     W_vals = np.linspace(W_grid.min(), min(W_grid.max(), W_cutoff), num_points)
 
     # ---------- model curves ----------
-    anl_xs, pdf_xs, onepi_xs = [], [], []
-    F1_interp, F2_interp, _ = get_pdf_interpolators(fixed_Q2)
+    anl_xs, onepi_xs = [], []
 
     for w in W_vals:
         anl_xs.append(
             compute_cross_section(w, fixed_Q2, beam_energy,
                                   file_path=interp_file, verbose=False)
         )
-        try:
-            pdf_xs.append(
-                compute_cross_section_pdf(w, fixed_Q2, beam_energy,
-                                          F1_interp, F2_interp)
-            )
-        except Exception:
-            pdf_xs.append(np.nan)
-
         try:
             onepi_xs.append(
                 calculate_1pi_cross_section(w, fixed_Q2, beam_energy,
@@ -389,7 +380,6 @@ def compare_strfun(fixed_Q2, beam_energy,
             onepi_xs.append(np.nan)
 
     anl_xs   = np.asarray(anl_xs)
-    pdf_xs   = np.asarray(pdf_xs)
     onepi_xs = np.asarray(onepi_xs)
 
     # ---------- experimental strfun data ----------
@@ -421,10 +411,9 @@ def compare_strfun(fixed_Q2, beam_energy,
     # ---------- plot ----------
     plt.figure(figsize=(8, 6))
 
-    h_anl, = plt.plot(W_vals, anl_xs, label="ANL-Osaka model:full cross section", color="blue", lw=2)
-    #h_pdf, = plt.plot(W_vals, pdf_xs, label="PDF model (outdated!)", color="orange", ls="--", lw=2)
+    h_anl, = plt.plot(W_vals, anl_xs, label="ANL-Osaka model: full cross section", color="blue", lw=2)
     good = ~np.isnan(onepi_xs)
-    h_1pi, = plt.plot(W_vals[good], onepi_xs[good], label="ANL-Osaka model: 1π contribution", color="purple", lw=2)
+    #h_1pi, = plt.plot(W_vals[good], onepi_xs[good], label="ANL-Osaka model: 1π contribution", color="purple", lw=2)
 
     h_data = plt.errorbar(
         mdat["W"][mask_meas],
@@ -444,8 +433,7 @@ def compare_strfun(fixed_Q2, beam_energy,
     # ---------- legend ----------
     handles = [plt.Line2D([], [], color='white', label=f"Q² = {fixed_Q2:.3f} GeV², E = {beam_energy} GeV"),
                h_anl,
-               h_1pi,
-               #h_pdf,
+               #h_1pi,
                h_data]
     if plot_rga and len(W_rga) > 0:
         handles.append(h_rga)
@@ -455,13 +443,14 @@ def compare_strfun(fixed_Q2, beam_energy,
     plt.xlabel("W (GeV)")
     plt.ylabel(r"Cross Section ($\mathrm{\mu bn/GeV^3}$)")
     plt.grid(True)
-    plt.legend(handles, labels, loc="upper left", fontsize="small")
+    plt.legend(handles, labels, loc="upper right", fontsize="small")
 
     os.makedirs("compare_strfun", exist_ok=True)
     fname = f"compare_strfun/compare_strfun_Q2={fixed_Q2}_E={beam_energy}.pdf"
     plt.savefig(fname, dpi=300)
     plt.close()
     print("Saved →", fname)
+
 
 
 
