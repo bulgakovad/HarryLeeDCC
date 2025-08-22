@@ -1,255 +1,23 @@
 import numpy as np
 import math
-from scipy.interpolate import RectBivariateSpline, interp1d
-from scipy.interpolate import CubicSpline
-from scipy.integrate import quad
+from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
 import os
 import pandas as pd
-from scipy.interpolate import PchipInterpolator
-
-def interpolate_structure_functions(file_path, target_W, target_Q2):
-    """
-    Interpolates the structure functions W1 and W2 for given W and Q2 values
-    using bicubic (cubic spline) interpolation.
-
-    If the target values are outside the data range, a ValueError is raised.
-
-    Parameters:
-        file_path (str): Path to the input .dat file containing the data.
-        target_W (float): The W (invariant mass) value at which to interpolate.
-        target_Q2 (float): The Q2 (virtuality) value at which to interpolate.
-
-    Returns:
-        tuple: Interpolated (W1, W2) values.
-    """
-    # Load the data (assumed columns: W, Q2, W1, W2)
-    data = np.loadtxt(file_path)
-    
-    # Extract columns
-    W = data[:, 0]
-    Q2 = data[:, 1]
-    W1 = data[:, 2]
-    W2 = data[:, 3]
-    
-    # Get unique grid points (assumes a regular grid)
-    W_unique = np.unique(W)
-    Q2_unique = np.unique(Q2)
-    
-    # Check if the target values are within the available data range
-    W_min, W_max = W_unique[0], W_unique[-1]
-    Q2_min, Q2_max = Q2_unique[0], Q2_unique[-1]
-    
-    if target_W < W_min or target_W > W_max:
-        raise ValueError(f"Error: Target W = {target_W} is outside the available range: {W_min} to {W_max}")
-    if target_Q2 < Q2_min or target_Q2 > Q2_max:
-        raise ValueError(f"Error: Target Q2 = {target_Q2} is outside the available range: {Q2_min} to {Q2_max}")
-    
-    # Determine grid dimensions
-    nW = len(W_unique)
-    nQ2 = len(Q2_unique)
-    
-    # Reshape structure functions into 2D grids.
-    W1_grid = W1.reshape(nW, nQ2)
-    W2_grid = W2.reshape(nW, nQ2)
-    
-    # Build bicubic spline interpolators
-    interp_W1 = RectBivariateSpline(W_unique, Q2_unique, W1_grid, kx=3, ky=3)
-    interp_W2 = RectBivariateSpline(W_unique, Q2_unique, W2_grid, kx=3, ky=3)
-    
-    # Evaluate the interpolators at the target values.
-    W1_interp = interp_W1(target_W, target_Q2)[0, 0]
-    W2_interp = interp_W2(target_W, target_Q2)[0, 0]
-    
-    return W1_interp, W2_interp
 
 
-def interpolate_structure_functions_1pi(file_path, target_W, target_Q2):
-    """
-    Bicubic interpolation of single-pion structure functions (W1, W2)
-    on a regular (W, Q²) grid, using RectBivariateSpline.
+from functions_pdf import get_pdf_interpolators_with_error, get_nlo_pdf_interpolators, compute_cross_section_pdf_with_error, get_nlo_pdf_cross_sections
+from functions_anl_osaka import compute_cross_section, calculate_1pi_cross_section, compute_2pi_cross_section
 
-    Expected columns in *file_path*:
-        0 : W   (GeV)
-        1 : Q²  (GeV²)
-        2 : W1
-        3 : W2
-        (extra columns are ignored)
-    """
-    # ---------- load ----------
-    data = np.loadtxt(file_path)
-    if data.shape[1] < 4:
-        raise ValueError(
-            f"{file_path} must have ≥ 4 columns (W, Q², W1, W2); "
-            f"found {data.shape[1]}"
-        )
+from functions_fitting import (
+    read_and_prepare_data,
+    compute_reference_shapes_for_df,
+    build_least_squares_from_df,
+    run_minuit,
+    make_predict_curve_function,
+    make_component_curve_functions   # NEW
+)
 
-    W_all, Q2_all = data[:, 0], data[:, 1]
-    W1_all, W2_all = data[:, 2], data[:, 3]
-
-    # ---------- unique axes ----------
-    W_uni   = np.unique(W_all)
-    Q2_uni  = np.unique(Q2_all)
-    nW, nQ2 = len(W_uni), len(Q2_uni)
-
-    # range check
-    if not (W_uni[0] <= target_W <= W_uni[-1]):
-        raise ValueError(f"W = {target_W} GeV outside table range {W_uni[0]}–{W_uni[-1]}")
-    if not (Q2_uni[0] <= target_Q2 <= Q2_uni[-1]):
-        raise ValueError(f"Q² = {target_Q2} GeV² outside table range {Q2_uni[0]}–{Q2_uni[-1]}")
-
-    # ---------- reshape to 2-D grid ----------
-    try:
-        W1_grid = W1_all.reshape(nW, nQ2)
-        W2_grid = W2_all.reshape(nW, nQ2)
-    except ValueError:
-        raise ValueError(
-            "1π table is not a complete rectangular W–Q² grid. "
-            "Fill in the missing points or use a scattered-data interpolator."
-        )
-
-    # ---------- bicubic splines ----------
-    spl_W1 = RectBivariateSpline(W_uni, Q2_uni, W1_grid, kx=3, ky=3)
-    spl_W2 = RectBivariateSpline(W_uni, Q2_uni, W2_grid, kx=3, ky=3)
-
-    W1_interp = spl_W1(target_W, target_Q2)[0, 0]
-    W2_interp = spl_W2(target_W, target_Q2)[0, 0]
-
-    return W1_interp, W2_interp
-def compute_cross_section(W, Q2, beam_energy, file_path="input_data/wempx.dat", verbose=True):
-    """
-    Computes the differential cross section dσ/dW/dQ² for an electromagnetic (EM)
-    reaction using interpolated structure functions.
-
-    The reaction is fixed to N(e,e')X with massless leptons.
-
-    Parameters:
-        W          : Invariant mass of the final hadron system (GeV)
-        Q2         : Photon virtuality (GeV²)
-        beam_energy: Beam (lepton) energy in the lab (GeV)
-        file_path  : Path to the structure function file (default "input_data/wempx.dat")
-        verbose    : If True, prints the interpolated structure functions.
-
-    Returns:
-        dcrs       : Differential cross section in units of 10^(-30) cm²/GeV³
-    """
-    # Define physical constants (in GeV units)
-    fnuc = 0.9385         # Nucleon mass m_N
-    pi = 3.1415926
-    alpha = 1 / 137.04    # Fine-structure constant
-
-    # For EM reaction, both initial and final lepton masses are zero.
-    flepi = 0.0
-    flepf = 0.0
-
-    # Step 1: Interpolate structure functions
-    W1, W2 = interpolate_structure_functions(file_path, W, Q2)
-    if verbose:
-        print(f"Interpolated structure functions at (W={W:.3f}, Q²={Q2:.3f}):")
-        print(f"    W1 = {W1:.5e}")
-        print(f"    W2 = {W2:.5e}")
-    
-    # Step 2: Kinematics
-    # Total available energy: w_tot = sqrt(2*m_N*E + m_N²)
-    wtot = math.sqrt(2 * fnuc * beam_energy + fnuc**2)
-    if W > wtot:
-        raise ValueError("W is greater than the available lab energy (w_tot).")
-    
-    # For massless leptons, energy equals momentum.
-    elepi = beam_energy  # initial lepton energy
-    plepi = elepi        # momentum of initial lepton
-    
-    # Energy transfer: ω = (W² + Q² - m_N²) / (2*m_N)
-    omeg = (W**2 + Q2 - fnuc**2) / (2 * fnuc)
-    elepf = elepi - omeg
-    if elepf <= 0:
-        raise ValueError("Final lepton energy is non-positive.")
-    plepf = elepf        # momentum of final lepton
-    
-    # Cosine of the lepton scattering angle:
-    # clep = (-Q² + 2*elepi*elepf) / (2*plepi*plepf)
-    clep = (-Q2 + 2 * elepi * elepf) / (2 * plepi * plepf)
-    
-    # Step 3: Cross Section Calculation
-    # Common kinematic factor: fac3 = π * W / (m_N * elepi * elepf)
-    fac3 = pi * W / (fnuc * elepi * elepf)
-    
-    # Reaction-dependent factor for EM:
-    # fcrs3 = 4 * ((alpha)/Q²)² * (0.197327²) * 1e4 * (elepf²)
-    fcrs3 = 4 * (alpha / Q2)**2 * (0.197327**2) * 1e4 * (elepf**2)
-    
-    # Angular factors:
-    ss2 = (1 - clep) / 2
-    cc2 = (1 + clep) / 2
-    
-    # Combine structure functions: xxx = 2*ss2*W1 + cc2*W2
-    xxx = 2 * ss2 * W1 + cc2 * W2
-    
-    # Differential cross section: dσ/dW/dQ² = fcrs3 * fac3 * xxx
-    dcrs = fcrs3 * fac3 * xxx
-    return dcrs
-
-
-def calculate_1pi_cross_section(W, Q2, beam_energy, file_path="input_data/wemp-pi.dat", verbose=True):
-    """
-    Computes the differential cross section dσ/dW/dQ² for the single-pion production
-    channel (1π) in electromagnetic scattering N(e,e'π)X using interpolated structure functions.
-
-    The reaction is fixed to EM interaction with massless leptons.
-
-    Parameters:
-        W          : Invariant mass of the final hadron system (GeV)
-        Q2         : Photon virtuality (GeV²)
-        beam_energy: Beam (lepton) energy in the lab frame (GeV)
-        file_path  : Path to 1π structure function file (default: "input_data/wemp-pi.dat")
-        verbose    : If True, prints the interpolated structure functions.
-
-    Returns:
-        dcrs       : Differential cross section in units of 10^(-30) cm²/GeV³
-    """
-    # Physical constants
-    fnuc = 0.9385         # Nucleon mass in GeV
-    pi = 3.1415926
-    alpha = 1 / 137.04    # Fine-structure constant
-
-    # Massless lepton assumption
-    flepi = 0.0
-    flepf = 0.0
-
-    # Step 1: Interpolate structure functions W1 and W2 for 1pi production
-    W1, W2 = interpolate_structure_functions_1pi(file_path, W, Q2)
-    if verbose:
-        print(f"[1π] Interpolated structure functions at (W={W:.3f}, Q²={Q2:.3f}):")
-        print(f"    W1 = {W1:.5e}")
-        print(f"    W2 = {W2:.5e}")
-
-    # Step 2: Kinematics
-    wtot = math.sqrt(2 * fnuc * beam_energy + fnuc**2)
-    if W > wtot:
-        raise ValueError("W is greater than the available lab energy (w_tot).")
-
-    elepi = beam_energy
-    plepi = elepi
-
-    omeg = (W**2 + Q2 - fnuc**2) / (2 * fnuc)
-    elepf = elepi - omeg
-    if elepf <= 0:
-        raise ValueError("Final lepton energy is non-positive.")
-    plepf = elepf
-
-    clep = (-Q2 + 2 * elepi * elepf) / (2 * plepi * plepf)
-
-    # Step 3: Cross section calculation
-    fac3 = pi * W / (fnuc * elepi * elepf)
-    fcrs3 = 4 * (alpha / Q2)**2 * (0.197327**2) * 1e4 * (elepf**2)
-
-    ss2 = (1 - clep) / 2
-    cc2 = (1 + clep) / 2
-
-    xxx = 2 * ss2 * W1 + cc2 * W2
-    dcrs = fcrs3 * fac3 * xxx
-
-    return dcrs
 
 def generate_table_struct_funcs(file_path, fixed_Q2, onepi_file="input_data/wemp-pi.dat"):
     """
@@ -341,151 +109,196 @@ def generate_table_xsecs(file_path, fixed_Q2, beam_energy, onepi_file="input_dat
     print(f"Table saved as {output_filename}")
 
     
-
 def compare_strfun(fixed_Q2, beam_energy,
                    interp_file="input_data/wempx.dat",
                    onepi_file="input_data/wemp-pi.dat",
                    num_points=200):
     """
-    Compare ANL-Osaka, 1π, PDF (LO and NLO), and data (strfun + RGA) cross sections up to W=2 GeV.
+    Plot whatever is available among:
+      - ANL-Osaka (full) and 1π
+      - LO PDF (CJ15) with error band
+      - NLO PDF (Brady)
+      - CLAS+World (strfun) smoothed band
+      - RGA data (Valera)
+    For any source that is missing or invalid at this Q², just skip it.
     """
-
 
     W_cutoff = 2.0
     data = np.loadtxt(interp_file)
     W_grid = np.unique(data[:, 0])
     W_vals = np.linspace(W_grid.min(), min(W_grid.max(), W_cutoff), num_points)
 
+    # Containers
     anl_xs, onepi_xs = [], []
-    pdf_lo_xs, pdf_nlo_xs = [], []
-    pdf_lo_err, pdf_nlo_err = [], []
+    pdf_lo_xs, pdf_lo_err = [], []
+    pdf_nlo_xs = []
+    pdf_nlo_ht_xs = []  # For NLO HT cross sections
 
-    # Get PDF interpolators with error bands
-    F1_lo, F2_lo, F1_lo_err, F2_lo_err, _ = get_pdf_interpolators_with_error(fixed_Q2, central_iset=400)
-    F1_nlo, F2_nlo, F1_nlo_err, F2_nlo_err, _ = get_pdf_interpolators_with_error(fixed_Q2, central_iset=500)
+    # ---------- LO PDF (with error) ----------
+    try:
+        F1_lo, F2_lo, F1_lo_err, F2_lo_err, _ = get_pdf_interpolators_with_error(fixed_Q2, central_iset=400)
+        have_lo = True
+    except Exception:
+        have_lo = False
 
+    # ---------- NLO PDF (Brady tables) ----------
+    try:
+        F1_brady, F1_brady_alt, F1_HT, F2_brady, F2_HT, _ = get_nlo_pdf_interpolators(fixed_Q2)
+        have_nlo = True
+    except Exception:
+        have_nlo = False
+
+    # ---------- Curves on W grid ----------
     for w in W_vals:
-        anl_xs.append(compute_cross_section(w, fixed_Q2, beam_energy, file_path=interp_file, verbose=False))
-
+        # ANL full
         try:
-            onepi_xs.append(calculate_1pi_cross_section(w, fixed_Q2, beam_energy, file_path=onepi_file, verbose=False))
+            anl_xs.append(compute_cross_section(w, fixed_Q2, beam_energy,
+                                                file_path=interp_file, verbose=False))
+        except Exception:
+            anl_xs.append(np.nan)
+        # 1π
+        try:
+            onepi_xs.append(calculate_1pi_cross_section(w, fixed_Q2, beam_energy,
+                                                        file_path=onepi_file, verbose=False))
         except Exception:
             onepi_xs.append(np.nan)
+        # LO PDF
+        if have_lo:
+            try:
+                pdf_val, pdf_err = compute_cross_section_pdf_with_error(
+                    w, fixed_Q2, beam_energy, F1_lo, F2_lo, F1_lo_err, F2_lo_err
+                )
+                pdf_lo_xs.append(pdf_val)
+                pdf_lo_err.append(pdf_err)
+            except Exception:
+                pdf_lo_xs.append(np.nan)
+                pdf_lo_err.append(np.nan)
+        # NLO PDF
+        if have_nlo:
+            try:
+                pdf_nlo_xs.append(get_nlo_pdf_cross_sections(w, fixed_Q2, beam_energy, F1_interp=F1_brady, F2_interp=F2_brady))
+                pdf_nlo_ht_xs.append(get_nlo_pdf_cross_sections(w, fixed_Q2, beam_energy, F1_interp=F1_HT, F2_interp=F2_HT))
+            except Exception:
+                pdf_nlo_xs.append(np.nan)
+                pdf_nlo_ht_xs.append(np.nan)
 
-        try:
-            pdf_val, pdf_err = compute_cross_section_pdf_with_error(w, fixed_Q2, beam_energy,
-                                                                    F1_lo, F2_lo,
-                                                                    F1_lo_err, F2_lo_err)
-            pdf_lo_xs.append(pdf_val)
-            pdf_lo_err.append(pdf_err)
-        except Exception:
-            pdf_lo_xs.append(np.nan)
-            pdf_lo_err.append(np.nan)
+    anl_xs     = np.asarray(anl_xs)
+    onepi_xs   = np.asarray(onepi_xs)
+    pdf_lo_xs  = np.asarray(pdf_lo_xs)  if have_lo  else np.array([])
+    pdf_lo_err = np.asarray(pdf_lo_err) if have_lo  else np.array([])
+    pdf_nlo_xs = np.asarray(pdf_nlo_xs) if have_nlo else np.array([])
+    pdf_nlo_ht_xs = np.asarray(pdf_nlo_ht_xs) if have_nlo else np.array([])
 
-        try:
-            pdf_val, pdf_err = compute_cross_section_pdf_with_error(w, fixed_Q2, beam_energy,
-                                                                    F1_nlo, F2_nlo,
-                                                                    F1_nlo_err, F2_nlo_err)
-            pdf_nlo_xs.append(pdf_val)
-            pdf_nlo_err.append(pdf_err)
-        except Exception:
-            pdf_nlo_xs.append(np.nan)
-            pdf_nlo_err.append(np.nan)
-
-    anl_xs      = np.asarray(anl_xs)
-    onepi_xs    = np.asarray(onepi_xs)
-    pdf_lo_xs   = np.asarray(pdf_lo_xs)
-    pdf_nlo_xs  = np.asarray(pdf_nlo_xs)
-    pdf_lo_err  = np.asarray(pdf_lo_err)
-    pdf_nlo_err = np.asarray(pdf_nlo_err)
-
-    # Load strfun data
-    meas_file = f"strfun_data/cs_Q2={fixed_Q2}_E={beam_energy}.dat"
-    if not os.path.isfile(meas_file):
-        raise FileNotFoundError(meas_file + " not found")
-    mdat = np.genfromtxt(meas_file, names=["W", "Quantity", "Uncertainty"], delimiter="\t", skip_header=1)
-    mask_meas = mdat["W"] <= W_cutoff
-    W_meas = mdat["W"][mask_meas]
-    cs_meas = mdat["Quantity"][mask_meas]
-    err_meas = mdat["Uncertainty"][mask_meas]
-
-    # Sort for interpolation
-    sort_idx = np.argsort(W_meas)
-    W_sorted = W_meas[sort_idx]
-    cs_sorted = cs_meas[sort_idx]
-    err_sorted = err_meas[sort_idx]
-
-    cs_interp = interp1d(W_sorted, cs_sorted, kind='cubic', bounds_error=False, fill_value="extrapolate")
-    err_interp = interp1d(W_sorted, err_sorted, kind='cubic', bounds_error=False, fill_value="extrapolate")
-
-    # Do NOT extrapolate smoothed curve beyond the data
-    W_data_min = W_sorted[0]
-    W_data_max = W_sorted[-1]
-    mask_within_data = (W_vals >= W_data_min) & (W_vals <= W_data_max)
-    W_vals_data = W_vals[mask_within_data]
-
-    cs_vals = cs_interp(W_vals_data)
-    err_vals = err_interp(W_vals_data)
-
-    # Load Klimenko data if Q² ~ 2.774
-    plot_rga = abs(fixed_Q2 - 2.774) < 1e-3
-    if plot_rga:
-        rga_file = "exp_data/InclusiveExpValera_Q2=2.774.dat"
-        if not os.path.isfile(rga_file):
-            raise FileNotFoundError(f"Expected RGA data {rga_file} not found")
-        rga_data = np.genfromtxt(rga_file,
-                                 names=["W", "eps", "sigma", "error", "sys_error"],
+    # ---------- strfun smoothed band (optional) ----------
+    have_strfun = False
+    try:
+        meas_file = f"strfun_data/cs_Q2={fixed_Q2}_E={beam_energy}.dat"
+        if os.path.isfile(meas_file):
+            mdat = np.genfromtxt(meas_file, names=["W", "Quantity", "Uncertainty"],
                                  delimiter="\t", skip_header=1)
-        mask_rga = rga_data["W"] <= W_cutoff
-        W_rga = rga_data["W"][mask_rga]
-        sigma_rga = rga_data["sigma"][mask_rga] * 1e-3
-        err_rga = np.sqrt(rga_data["error"][mask_rga]**2 + rga_data["sys_error"][mask_rga]**2) * 1e-3
+            mask_meas = mdat["W"] <= W_cutoff
+            W_meas = mdat["W"][mask_meas]
+            cs_meas = mdat["Quantity"][mask_meas]
+            err_meas = mdat["Uncertainty"][mask_meas]
 
-    # ----- Plot -----
+            sort_idx = np.argsort(W_meas)
+            W_sorted = W_meas[sort_idx]
+            cs_sorted = cs_meas[sort_idx]
+            err_sorted = err_meas[sort_idx]
+
+            cs_interp  = interp1d(W_sorted, cs_sorted, kind='cubic', bounds_error=False, fill_value="extrapolate")
+            err_interp = interp1d(W_sorted, err_sorted, kind='cubic', bounds_error=False, fill_value="extrapolate")
+
+            W_data_min = W_sorted[0]
+            W_data_max = W_sorted[-1]
+            mask_within_data = (W_vals >= W_data_min) & (W_vals <= W_data_max)
+            W_vals_data = W_vals[mask_within_data]
+
+            cs_vals  = cs_interp(W_vals_data)
+            err_vals = err_interp(W_vals_data)
+            have_strfun = True
+        else:
+            W_vals_data = np.array([])
+            cs_vals = err_vals = np.array([])
+    except Exception:
+        W_vals_data = np.array([])
+        cs_vals = err_vals = np.array([])
+
+    # ---------- RGA data (optional) ----------
+    have_rga = False
+    try:
+        rga_file = f"exp_data/InclusiveExpValera_Q2={fixed_Q2}.dat"
+        if os.path.isfile(rga_file):
+            rga_data = np.genfromtxt(rga_file,
+                                     names=["W", "eps", "sigma", "error", "sys_error"],
+                                     delimiter="\t", skip_header=1)
+            mask_rga = rga_data["W"] <= W_cutoff
+            W_rga = rga_data["W"][mask_rga]
+            sigma_rga = rga_data["sigma"][mask_rga] * 1e-3
+            err_rga = np.sqrt(rga_data["error"][mask_rga]**2 + rga_data["sys_error"][mask_rga]**2) * 1e-3
+            have_rga = (len(W_rga) > 0)
+    except Exception:
+        pass
+
+    # ---------- Plot ----------
     plt.figure(figsize=(8, 6))
+    handles = [plt.Line2D([], [], color='white',
+               label=f"Q² = {fixed_Q2:.3f} GeV², E = {beam_energy} GeV")]
 
-    h_anl, = plt.plot(W_vals, anl_xs, label="ANL-Osaka model: full cross section", color="black", lw=2)
-    good = ~np.isnan(onepi_xs)
-    h_1pi, = plt.plot(W_vals[good], onepi_xs[good], label="ANL-Osaka model: 1π contribution", color="black", ls="--", lw=2)
-    #h_strfun_line, = plt.plot(W_vals_data, cs_vals, color="grey", lw=2, label="CLAS+Wodld data smoothed")
-   # plt.fill_between(W_vals_data, cs_vals - err_vals, cs_vals + err_vals, color="grey", alpha=0.3)
-    #h_strfun_pts = plt.errorbar(W_meas, cs_meas, yerr=err_meas, fmt="o", color="green", capsize=1, ms=2, label="strfun (points)")
+    # ANL and 1π (only if any finite values)
+    if np.isfinite(anl_xs).any():
+        h_anl, = plt.plot(W_vals, anl_xs, label="ANL-Osaka model: full cross section",
+                          color="black", lw=2)
+        handles.append(h_anl)
+    if np.isfinite(onepi_xs).any():
+        good = np.isfinite(onepi_xs)
+        h_1pi, = plt.plot(W_vals[good], onepi_xs[good],
+                          label="ANL-Osaka model: 1π contribution", color="black", ls="--", lw=2)
+        handles.append(h_1pi)
 
-    # PDF LO with error band
-    good_lo = ~np.isnan(pdf_lo_xs)
-   # h_pdf_lo, = plt.plot(W_vals[good_lo], pdf_lo_xs[good_lo], label="LO PDF (CJ15)", color="blue", ls="dotted", lw=1)
-   # plt.fill_between(W_vals[good_lo],
-               #      pdf_lo_xs[good_lo] - pdf_lo_err[good_lo],
-                 #    pdf_lo_xs[good_lo] + pdf_lo_err[good_lo],
-                 #    color="blue", alpha=0.3)
+    # strfun band
+    if have_strfun and len(W_vals_data) > 0:
+        h_strfun_line, = plt.plot(W_vals_data, cs_vals, color="grey", lw=2,
+                                  label="CLAS+World data smoothed")
+        plt.fill_between(W_vals_data, cs_vals - err_vals, cs_vals + err_vals,
+                         color="grey", alpha=0.3)
+        handles.append(h_strfun_line)
 
-    # PDF NLO with error band
-    #good_nlo = ~np.isnan(pdf_nlo_xs)
-   # h_pdf_nlo, = plt.plot(W_vals[good_nlo], pdf_nlo_xs[good_nlo], label="NLO PDF (CJ15)", color="blue", ls="dotted", lw=1)
-   # plt.fill_between(W_vals[good_nlo], pdf_nlo_xs[good_nlo] - pdf_nlo_err[good_nlo], pdf_nlo_xs[good_nlo] + pdf_nlo_err[good_nlo], color="blue", alpha=0.3)
+    # LO PDF
+    if have_lo and np.isfinite(pdf_lo_xs).any():
+        good_lo = np.isfinite(pdf_lo_xs)
+        h_pdf_lo, = plt.plot(W_vals[good_lo], pdf_lo_xs[good_lo],
+                             label="LO PDF (CJ15)", color="blue", ls="dotted", lw=1)
+        try:
+            plt.fill_between(W_vals[good_lo],
+                             pdf_lo_xs[good_lo] - pdf_lo_err[good_lo],
+                             pdf_lo_xs[good_lo] + pdf_lo_err[good_lo],
+                             color="blue", alpha=0.3)
+        except Exception:
+            pass
+        handles.append(h_pdf_lo)
 
-    if plot_rga and len(W_rga) > 0:
-        h_rga = plt.errorbar(
-            W_rga, sigma_rga, yerr=err_rga,
-            fmt="s", color="magenta", capsize=1, ms=2,
-            label="RGA data (V. Klimenko)"
-        )
+    # NLO PDF
+    if have_nlo and np.isfinite(pdf_nlo_xs).any():
+        good_nlo = np.isfinite(pdf_nlo_xs)
+        good_nlo_ht = np.isfinite(pdf_nlo_ht_xs)
+        h_pdf_nlo, = plt.plot(W_vals[good_nlo], pdf_nlo_xs[good_nlo],label="NLO PDF (CJ15 TMC only)", color="green", ls="dashdot", lw=2)
+        h_pdf_nlo_ht, = plt.plot(W_vals[good_nlo_ht], pdf_nlo_ht_xs[good_nlo_ht], label="NLO PDF (CJ15 TMC + HT)", color="orange", ls="dashdot", lw=2)
+        handles.append(h_pdf_nlo)
+        handles.append(h_pdf_nlo_ht)
 
-    handles = [plt.Line2D([], [], color='white', label=f"Q² = {fixed_Q2:.3f} GeV², E = {beam_energy} GeV"),
-           h_anl,
-            h_1pi,
-           #h_pdf_lo,
-           #h_pdf_nlo,
-           #h_strfun_pts,
-           #h_strfun_line
-               ]
-    if plot_rga and len(W_rga) > 0:
+    # RGA points
+    if have_rga:
+        h_rga = plt.errorbar(W_rga, sigma_rga, yerr=err_rga,
+                             fmt="s", color="magenta", capsize=1, ms=2,
+                             label="RGA data (V. Klimenko)")
         handles.append(h_rga)
 
     plt.xlabel("W (GeV)")
     plt.ylabel(r"$d \sigma / dW dQ^2$ ($\mathrm{\mu bn/GeV^3}$)")
     plt.grid(True)
-    plt.legend(handles=handles, loc="upper left", fontsize="small")
+    if len(handles) > 0:
+        plt.legend(handles=handles, loc="upper left", fontsize="small")
 
     os.makedirs("compare_strfun", exist_ok=True)
     fname = f"compare_strfun/compare_strfun_Q2={fixed_Q2}_E={beam_energy}.pdf"
@@ -493,149 +306,14 @@ def compare_strfun(fixed_Q2, beam_energy,
     plt.close()
     print("Saved →", fname)
 
-
-    
-def get_pdf_interpolators_with_error(fixed_Q2, central_iset=400):
-    """
-    Loads central and error PDF tables for a given fixed Q² and ISET value (400 or 500),
-    computes F1(W) and F2(W) interpolators, and error bands using Hessian prescription.
-
-    Returns:
-        tuple: (F1_W_interp, F2_W_interp, F1_err_func, F2_err_func, W_range)
-    """
-
+def compare_exp_model_pdf_bjorken_x(
+    fixed_Q2,
+    beam_energy,
+    interp_file="input_data/wempx.dat",
+    onepi_file="input_data/wemp-pi.dat",
+    num_points=200
+):
     Mp = 0.9385
-    q2_str = str(fixed_Q2).rstrip("0").rstrip(".")
-    folder = f"../get_PDF/output/Q2={q2_str}"
-
-    # Load central PDF
-    def load_table(iset):
-        filename = f"{folder}/tst_CJpdf_ISET={iset}_Q2={q2_str}.dat"
-        if not os.path.isfile(filename):
-            raise FileNotFoundError(f"PDF file not found: {filename}")
-        return pd.read_csv(filename, sep=r'\s+')
-
-    df0 = load_table(central_iset)
-    x = df0['x'].values
-    nu0 = df0['u'].values
-    nub0 = df0['ub'].values
-    nd0 = df0['d'].values
-    ndb0 = df0['db'].values
-
-    F2_0 = (4/9)*(nu0 + nub0) + (1/9)*(nd0 + ndb0)
-    F1_0 = F2_0 / (2 * x)
-
-    W2 = Mp**2 + fixed_Q2 * (1 - x) / x
-    W = np.sqrt(W2)
-
-    sorted = np.argsort(W)
-    W_sorted = W[sorted]
-    F1_sorted = F1_0[sorted]
-    F2_sorted = F2_0[sorted]
-
-    F1_W_interp = interp1d(W_sorted, F1_sorted, kind='cubic', bounds_error=False, fill_value="extrapolate")
-    F2_W_interp = interp1d(W_sorted, F2_sorted, kind='cubic', bounds_error=False, fill_value="extrapolate")
-
-    # Load eigenvector variations
-    if central_iset == 400:
-        iset_range = range(401, 449)
-    elif central_iset == 500:
-        iset_range = range(501, 549)
-    else:
-        raise ValueError("Expected central_iset to be 400 (LO) or 500 (NLO).")
-
-    F1_variations = []
-    F2_variations = []
-
-    for iset in iset_range:
-        try:
-            dfi = load_table(iset)
-        except FileNotFoundError:
-            continue
-        nui = dfi['u'].values
-        nubi = dfi['ub'].values
-        ndi = dfi['d'].values
-        ndbi = dfi['db'].values
-        F2_i = (4/9)*(nui + nubi) + (1/9)*(ndi + ndbi)
-        F1_i = F2_i / (2 * x)
-
-        F1_variations.append(F1_i[sorted])
-        F2_variations.append(F2_i[sorted])
-
-    F1_variations = np.array(F1_variations)
-    F2_variations = np.array(F2_variations)
-
-    # Compute symmetric error bands (standard Hessian method)
-    F1_err = np.sqrt(np.sum((F1_variations - F1_sorted) ** 2, axis=0))
-    F2_err = np.sqrt(np.sum((F2_variations - F2_sorted) ** 2, axis=0))
-
-    # Return error functions (interpolators)
-    F1_err_func = interp1d(W_sorted, F1_err, kind='linear', bounds_error=False, fill_value="extrapolate")
-    F2_err_func = interp1d(W_sorted, F2_err, kind='linear', bounds_error=False, fill_value="extrapolate")
-
-    return F1_W_interp, F2_W_interp, F1_err_func, F2_err_func, W_sorted
-
-
-def compute_cross_section_pdf_with_error(W, Q2, beam_energy,
-                                         F1_W_interp, F2_W_interp,
-                                         F1_err_func=None, F2_err_func=None):
-    """
-    Computes the differential cross section and optionally its uncertainty
-    using interpolated PDF-based structure functions.
-
-    Returns:
-        dσ and (optional) dσ uncertainty (if error functions provided)
-    """
-    alpha = 1 / 137.04
-    Mp = 0.9385
-    pi = math.pi
-    wtot = math.sqrt(2 * Mp * beam_energy + Mp**2)
-    if W > wtot:
-        raise ValueError("W is greater than lab energy (w_tot).")
-
-    elepi = beam_energy
-    omeg = (W**2 + Q2 - Mp**2) / (2 * Mp)
-    elepf = elepi - omeg
-    if elepf <= 0:
-        raise ValueError("Final lepton energy is non-positive.")
-
-    plepi = elepi
-    plepf = elepf
-    clep = (-Q2 + 2 * elepi * elepf) / (2 * plepi * plepf)
-
-    fac3 = pi * W / (Mp * elepi * elepf)
-    fcrs3 = 4 * (alpha / Q2)**2 * (0.197327**2) * 1e4 * (elepf**2)
-
-    ss2 = (1 - clep) / 2
-    cc2 = (1 + clep) / 2
-
-    F1 = F1_W_interp(W)
-    F2 = F2_W_interp(W)
-    W1 = F1 / Mp
-    W2 = F2 / omeg
-
-    xxx = 2 * ss2 * W1 + cc2 * W2
-    dcrs = fcrs3 * fac3 * xxx
-
-    if F1_err_func is not None and F2_err_func is not None:
-        F1_err = F1_err_func(W)
-        F2_err = F2_err_func(W)
-        W1_err = F1_err / Mp
-        W2_err = F2_err / omeg
-        dcrs_err = fcrs3 * fac3 * np.sqrt((2 * ss2 * W1_err) ** 2 + (cc2 * W2_err) ** 2)
-        return dcrs, dcrs_err
-    else:
-        return dcrs
-    
-    
-def compare_exp_model_pdf_bjorken_x(fixed_Q2, beam_energy,
-                                    interp_file="input_data/wempx.dat",
-                                    onepi_file="input_data/wemp-pi.dat",
-                                    num_points=200):
-
-
-    Mp = 0.9385
-    
 
     valid_Q2_list = [3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]
     plot_rga = abs(fixed_Q2 - 2.774) < 1e-3
@@ -652,10 +330,11 @@ def compare_exp_model_pdf_bjorken_x(fixed_Q2, beam_energy,
     # Load PDFs
     F1_lo, F2_lo, F1_lo_err, F2_lo_err, _ = get_pdf_interpolators_with_error(fixed_Q2, central_iset=400)
     pdf_lo_xs, pdf_lo_err = [], []
-
     for w in W_vals:
         try:
-            lo, lo_err = compute_cross_section_pdf_with_error(w, fixed_Q2, beam_energy, F1_lo, F2_lo, F1_lo_err, F2_lo_err)
+            lo, lo_err = compute_cross_section_pdf_with_error(
+                w, fixed_Q2, beam_energy, F1_lo, F2_lo, F1_lo_err, F2_lo_err
+            )
         except Exception:
             lo, lo_err = np.nan, np.nan
         pdf_lo_xs.append(lo)
@@ -739,7 +418,10 @@ def compare_exp_model_pdf_bjorken_x(fixed_Q2, beam_energy,
     plt.fill_between(x_vals, pdf_lo_xs - pdf_lo_err, pdf_lo_xs + pdf_lo_err, color="blue", alpha=0.3)
 
     if plot_rga or only_pdf_and_klim:
-        plt.errorbar(x_klim, sigma_klim_dx, yerr=err_klim_dx, fmt="s", ms=3, capsize=2, color="magenta", label="RGA data (V. Klimenko)")
+        plt.errorbar(
+            x_klim, sigma_klim_dx, yerr=err_klim_dx,
+            fmt="s", ms=3, capsize=2, color="magenta", label="RGA data (V. Klimenko)"
+        )
 
     plt.xlabel("Bjorken x")
     plt.ylabel(r"$d\sigma/dQ^2dx$ [$\mu b/GeV^2$]")
@@ -753,7 +435,8 @@ def compare_exp_model_pdf_bjorken_x(fixed_Q2, beam_energy,
         np.nanmax(pdf_lo_xs + pdf_lo_err),
         np.nanmax(sigma_klim_dx) if (plot_rga or only_pdf_and_klim) else 0,
         np.nanmax(cs_vals + err_vals) if not only_pdf_and_klim else 0,
-        np.nanmax(anl_xs) if not only_pdf_and_klim else 0])
+        np.nanmax(anl_xs) if not only_pdf_and_klim else 0
+    ])
     plt.xlim(xlim_min, xlim_max)
     plt.ylim(0, ylim_max)
     plt.tight_layout()
@@ -766,15 +449,10 @@ def compare_exp_model_pdf_bjorken_x(fixed_Q2, beam_energy,
     print("Saved →", fname)
 
 
-
 def compare_exp_model_pdf_nachtmann_xi(fixed_Q2, beam_energy,
                                        interp_file="input_data/wempx.dat",
                                        onepi_file="input_data/wemp-pi.dat",
                                        num_points=200):
-    import os
-    import numpy as np
-    import matplotlib.pyplot as plt
-    from scipy.interpolate import interp1d
 
     Mp = 0.9385
     
@@ -925,319 +603,420 @@ def compare_exp_model_pdf_nachtmann_xi(fixed_Q2, beam_energy,
     print("Saved →", fname)
     
     
-#----------------------------------------------Why am I doing this?--------------------------------------------------
-def generate_pseudodata(q2_list, beam_energy,
-                        interp_file="input_data/wempx.dat",
-                        onepi_file="input_data/wemp-pi.dat",
-                        strfun_folder="strfun_data",
-                        exp_folder="exp_data",
-                        num_points=200):
+def anl_osaka_model(fixed_Q2,
+                    beam_energy,
+                    interp_file="input_data/wempx.dat",
+                    onepi_file="input_data/wemp-pi.dat",
+                    num_points=200,
+                    W_cutoff=2.0,
+                    clamp_nonneg=False):
     """
-    Generates two PDF plots:
-      1) Data + 1π contribution
-      2) (Data - 1π)
-    Also saves a .dat file:
-      Q2   W   cross_section (data-1π)   error
+    Plot ANL-Osaka full cross section, 1π contribution, and (full − 1π) ≈ 2π contribution
+    vs W at a fixed Q² and beam energy.
+
+    Parameters
+    ----------
+    fixed_Q2 : float
+        Q² value (GeV²).
+    beam_energy : float
+        Beam energy E (GeV).
+    interp_file : str
+        Path to the full-channel (W, Q², W1, W2) table (default: "input_data/wempx.dat").
+    onepi_file : str
+        Path to the 1π-channel (W, Q², W1, W2) table (default: "input_data/wemp-pi.dat").
+    num_points : int
+        Number of W points for the curve.
+    W_cutoff : float
+        Upper limit for W in the plot (GeV). The actual upper limit used is min(table_max_W, W_cutoff).
+    clamp_nonneg : bool
+        If True, max(full − 1π, 0) is plotted/saved for the “2π” curve to avoid small negative artifacts.
+
+    Output
+    ------
+    - Figure saved to:  anl_osaka_model/anl_osaka_model_Q2={fixed_Q2}_E={beam_energy}.pdf
+    - Data table saved to: tables_xsecs/anl_osaka_model_Q2={fixed_Q2}_E={beam_energy}.txt
+      Columns: W, xsec_full, xsec_1pi, xsec_2pi
     """
-    import matplotlib.pyplot as plt
-    import numpy as np
-    import os
+    # Build a W grid from the full table, capped at W_cutoff
+    data = np.loadtxt(interp_file)
+    W_grid = np.unique(data[:, 0])
+    W_vals = np.linspace(W_grid.min(), min(W_grid.max(), W_cutoff), num_points)
 
-    nQ2 = len(q2_list)
+    xsec_full, xsec_1pi, xsec_2pi = [], [], []
 
-    # ---------------------------
-    # FIGURE 1: Data + 1π
-    # ---------------------------
-    fig1, axes1 = plt.subplots(nQ2, 1, figsize=(8, 3 * nQ2), sharex=True)
-    if nQ2 == 1:
-        axes1 = [axes1]
-
-    # ---------------------------
-    # FIGURE 2: Data - 1π
-    # ---------------------------
-    fig2, axes2 = plt.subplots(nQ2, 1, figsize=(8, 3 * nQ2), sharex=True)
-    if nQ2 == 1:
-        axes2 = [axes2]
-
-    all_rows = []  # For saving data - 1π
-
-    for i, q2 in enumerate(q2_list):
-        ax1 = axes1[i]
-        ax2 = axes2[i]
-
-        W_cutoff = 2.0
-        W_vals = np.linspace(1.1, W_cutoff, num_points)
-
-        # --- Load data ---
-        if abs(q2 - 2.774) < 1e-3:
-            data_file = os.path.join(exp_folder, "InclusiveExpValera_Q2=2.774.dat")
-            if not os.path.isfile(data_file):
-                raise FileNotFoundError(f"Missing Klimenko data: {data_file}")
-            data = np.genfromtxt(data_file, delimiter="\t", skip_header=1)
-            W_data = data[:, 0]
-            sigma_data = data[:, 2] * 1e-3  # nb → μb
-            sigma_err = np.sqrt(data[:, 3]**2 + data[:, 4]**2) * 1e-3
-            label_data = "RGA data (V. Klimenko)"
-        else:
-            data_file = os.path.join(strfun_folder, f"cs_Q2={q2}_E={beam_energy}.dat")
-            if not os.path.isfile(data_file):
-                raise FileNotFoundError(f"Missing strfun data: {data_file}")
-            data = np.genfromtxt(data_file, delimiter="\t", skip_header=1)
-            W_data = data[:, 0]
-            sigma_data = data[:, 1]
-            sigma_err = data[:, 2]
-            label_data = "CLAS+World data"
-
-        # --- Interpolate 1π at data points ---
-        onepi_at_data = []
-        for w in W_data:
-            try:
-                val = calculate_1pi_cross_section(w, q2, beam_energy,
-                                                  file_path=onepi_file, verbose=False)
-            except Exception:
-                val = np.nan
-            onepi_at_data.append(val)
-        onepi_at_data = np.array(onepi_at_data)
-
-        # --- Interpolate 1π curve ---
-        onepi_curve = []
-        for w in W_vals:
-            try:
-                val = calculate_1pi_cross_section(w, q2, beam_energy,
-                                                  file_path=onepi_file, verbose=False)
-            except Exception:
-                val = np.nan
-            onepi_curve.append(val)
-        onepi_curve = np.array(onepi_curve)
-
-        # --- Difference ---
-        diff = sigma_data - onepi_at_data
-        for w, val, err in zip(W_data, diff, sigma_err):
-            all_rows.append([q2, w, val, err])
-
-        # ---- PLOT 1: Data + 1π ----
-        ax1.errorbar(W_data, sigma_data, yerr=sigma_err, fmt="o", ms=3, capsize=2,
-                     color="green", label=label_data)
-        ax1.plot(W_vals, onepi_curve, "--", color="black", label="ANL-Osaka: 1π contribution")
-        ax1.set_ylabel(r"$\sigma$ ($\mu b / \mathrm{GeV}^3$)")
-        ax1.grid(True)
-        ax1.legend(fontsize="small")
-        ax1.set_title(f"$Q^2 = {q2:.3f}$ GeV$^2$, $E = {beam_energy:.2f}$ GeV")
-
-        # ---- PLOT 2: Data - 1π ----
-        ax2.errorbar(W_data, diff, yerr=sigma_err, fmt="s", ms=3, capsize=2,
-                     color="blue", label="(data - 1π)")
-        ax2.axhline(0, color="black", linestyle="--", linewidth=1)
-        ax2.set_ylabel(r"$(\sigma_\mathrm{data} - \sigma_{1\pi})$ ($\mu b / \mathrm{GeV}^3$)")
-        ax2.grid(True)
-        ax2.legend(fontsize="small")
-        ax2.set_title(f"$Q^2 = {q2:.3f}$ GeV$^2$, $E = {beam_energy:.2f}$ GeV")
-
-    axes1[-1].set_xlabel("W (GeV)")
-    axes2[-1].set_xlabel("W (GeV)")
-
-    os.makedirs("pseudodata_plots", exist_ok=True)
-
-    # Save both PDFs
-    file1 = f"pseudodata_plots/pseudodata_E={beam_energy}_Q2list.pdf"
-    file2 = f"pseudodata_plots/pseudodata_diff_E={beam_energy}_Q2list.pdf"
-    plt.figure(fig1.number)
-    plt.tight_layout()
-    fig1.savefig(file1, dpi=300)
-    plt.close(fig1)
-    print("Saved →", file1)
-
-    plt.figure(fig2.number)
-    plt.tight_layout()
-    fig2.savefig(file2, dpi=300)
-    plt.close(fig2)
-    print("Saved →", file2)
-
-    # Save difference data
-    os.makedirs("pseudodata_tables", exist_ok=True)
-    out_file = f"pseudodata_tables/pseudodata_diff_E={beam_energy}_Q2list.dat"
-    header = "Q2\tW\tcross_section\terror"
-    np.savetxt(out_file, np.array(all_rows), fmt="%.6e", delimiter="\t", header=header)
-    print("Saved →", out_file)
-
-
-#-------------------------------------------------TMC-----------------------------------------------------------
-
-Mp = 0.9385  # proton mass in GeV
-
-def bjorken_to_nachtmann_xi(x, Q2):
-    """Compute Nachtmann variable ξ from Bjorken x and Q²."""
-    return (2 * x) / (1 + np.sqrt(1 + 4 * x**2 * Mp**2 / Q2))
-
-def r_factor(x, Q2):
-    """Compute r = sqrt(1 + 4x²M²/Q²)."""
-    return np.sqrt(1 + 4 * x**2 * Mp**2 / Q2)
-
-# -----------------------------------------------------------
-# Auxiliary functions h₂ and g₂
-# -----------------------------------------------------------
-
-def h2_xi(xi, Q2, F2_xi_func):
-    """
-    Compute h₂(ξ, Q²) = ∫_ξ^1 [F₂⁽⁰⁾(u, Q²) / u²] du
-    """
-    integrand = lambda u: F2_xi_func(u) / (u**2)
-    return quad(integrand, xi, 1, limit=200)[0]
-
-def g2_xi(xi, Q2, F2_xi_func):
-    """
-    Compute g₂(ξ, Q²) = ∫_ξ^1 (v - ξ)/v² * F₂⁽⁰⁾(v, Q²) dv
-    """
-    integrand = lambda v: (v - xi) * F2_xi_func(v) / (v**2)
-    return quad(integrand, xi, 1, limit=200)[0]
-
-# -----------------------------------------------------------
-# Main function with TMC
-# -----------------------------------------------------------
-
-def bjorken_to_nachtmann_xi(x, Q2):
-    return (2 * x) / (1 + np.sqrt(1 + 4 * x**2 * Mp**2 / Q2))
-
-def r_factor(x, Q2):
-    return np.sqrt(1 + 4 * x**2 * Mp**2 / Q2)
-
-def h2_xi(xi, Q2, F2_xi_func):
-    integrand = lambda u: max(F2_xi_func(u), 0) / (u**2)
-    return quad(integrand, xi, 1, limit=200)[0]
-
-def g2_xi(xi, Q2, F2_xi_func):
-    integrand = lambda v: (v - xi) * max(F2_xi_func(v), 0) / (v**2)
-    return quad(integrand, xi, 1, limit=200)[0]
-
-def get_pdf_interpolators_with_error_TMC(fixed_Q2, central_iset=500, debug=False):
-    """
-    Compute TMC-corrected F1 and F2 in x-space, map to W-space, and return interpolators.
-    """
-    F1_x_func, F2_x_func, F1_err_func, F2_err_func, W_sorted = \
-        get_pdf_interpolators_with_error(fixed_Q2, central_iset)
-
-    # Define x-grid corresponding to W ∈ [1, 1.8]
-    W_min, W_max = 1.0, 1.8
-    x_min = fixed_Q2 / (fixed_Q2 + (W_max**2 - Mp**2))
-    x_max = fixed_Q2 / (fixed_Q2 + (W_min**2 - Mp**2))
-    x_grid = np.linspace(x_min, x_max, 300)
-
-    # Get uncorrected F2(x)
-    W_from_x = np.sqrt(Mp**2 + fixed_Q2 * (1 - x_grid) / x_grid)
-    F2_vals = F2_x_func(W_from_x)
-
-    # Build F2^(0)(ξ) interpolator
-    xi_grid = bjorken_to_nachtmann_xi(x_grid, fixed_Q2)
-    sort_idx = np.argsort(xi_grid)
-    xi_sorted = xi_grid[sort_idx]
-    F2_sorted = F2_vals[sort_idx]
-    F2_xi_func = PchipInterpolator(xi_sorted, np.maximum(F2_sorted, 0))
-
-    # TMC-corrected values
-    F2_TMC_vals = []
-    for x in x_grid:
-        xi = bjorken_to_nachtmann_xi(x, fixed_Q2)
-        r = r_factor(x, fixed_Q2)
-        h2_val = h2_xi(xi, fixed_Q2, F2_xi_func)
-        g2_val = g2_xi(xi, fixed_Q2, F2_xi_func)
-
-        term1 = (x**2 / (xi**2 * r**3)) * F2_xi_func(xi)
-        term2 = (6 * Mp**2 * x**3 / (fixed_Q2 * r**4)) * h2_val
-        term3 = (12 * Mp**4 * x**4 / (fixed_Q2**2 * r**5)) * g2_val
-        F2_corr = term1 + term2 + term3
-
-        if debug and x == x_grid[len(x_grid)//2]:
-            print(f"[DEBUG] Q²={fixed_Q2} GeV², x={x:.4f}, ξ={xi:.4f}")
-            print(f"  term1 = {term1:.5f}, term2 = {term2:.5f}, term3 = {term3:.5f}")
-            print(f"  F2^(0)(ξ) = {F2_xi_func(xi):.5f}, F2_TMC = {F2_corr:.5f}")
-
-        F2_TMC_vals.append(F2_corr)
-
-    # Create interpolator in W-space
-    W_grid = np.sqrt(Mp**2 + fixed_Q2 * (1 - x_grid) / x_grid)
-    sort_w_idx = np.argsort(W_grid)
-    F2_TMC_interp = interp1d(W_grid[sort_w_idx], np.array(F2_TMC_vals)[sort_w_idx],
-                             kind='cubic', bounds_error=False, fill_value="extrapolate")
-
-    # For now, return unmodified F1 as placeholder (TMC for F1 can be added similarly)
-    return F1_x_func, F2_TMC_interp, F1_err_func, F2_err_func, W_grid[sort_w_idx]
-
-
-def compare_f2_tmc(q2_vals):
-    """
-    Plot LO and NLO uncorrected and TMC-corrected structure function F2
-    with error bands on a shared canvas with subplots for multiple Q² values
-    (W ∈ [1, 1.8] GeV).
-    """
-    W_min, W_max = 1.0, 1.8
-    n_q2 = len(q2_vals)
-    n_cols = 3
-    n_rows = int(np.ceil(n_q2 / n_cols))
-
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 4 * n_rows))
-    axes = np.array(axes).reshape(n_rows, n_cols)
-
-    for idx, Q2 in enumerate(q2_vals):
-        row, col = divmod(idx, n_cols)
-        ax = axes[row, col]
-
+    for w in W_vals:
+        # Full
         try:
-            # -------- LO PDFs (iset=400) --------
-            _, F2_uncorr_LO, _, F2_err_LO, _ = get_pdf_interpolators_with_error(Q2, 400)
-            _, F2_TMC_LO, _, F2_err_TMC_LO, _ = get_pdf_interpolators_with_error_TMC(Q2, 400)
+            d_full = compute_cross_section(w, fixed_Q2, beam_energy, file_path=interp_file, verbose=False)
+        except Exception:
+            d_full = np.nan
 
-            # -------- NLO PDFs (iset=500) --------
-            _, F2_uncorr_NLO, _, F2_err_NLO, _ = get_pdf_interpolators_with_error(Q2, 500)
-            _, F2_TMC_NLO, _, F2_err_TMC_NLO, _ = get_pdf_interpolators_with_error_TMC(Q2, 500)
+        # 1π
+        try:
+            d_1pi = calculate_1pi_cross_section(w, fixed_Q2, beam_energy, file_path=onepi_file, verbose=False)
+        except Exception:
+            d_1pi = np.nan
 
-            # Define W grid in [W_min, W_max]
-            W_plot = np.linspace(W_min, W_max, 400)
+        # 2π ≈ (full − 1π)
+        d_2pi = np.nan
+        # Prefer the dedicated helper; fall back to (full − 1π) if both are available
+        try:
+            d_2pi = compute_2pi_cross_section(
+                W=w, Q2=fixed_Q2, beam_energy=beam_energy,
+                full_file_path=interp_file, onepi_file_path=onepi_file,
+                verbose=False, clamp_nonneg=clamp_nonneg
+            )
+        except Exception:
+            if not (np.isnan(d_full) or np.isnan(d_1pi)):
+                d_2pi = d_full - d_1pi
+                if clamp_nonneg and d_2pi < 0:
+                    d_2pi = 0.0
 
-            # --- LO ---
-            F2u_LO = F2_uncorr_LO(W_plot)
-            F2u_err_LO = F2_err_LO(W_plot)
-            F2c_LO = F2_TMC_LO(W_plot)
-            F2c_err_LO = F2_err_TMC_LO(W_plot)
+        xsec_full.append(d_full)
+        xsec_1pi.append(d_1pi)
+        xsec_2pi.append(d_2pi)
 
-            # --- NLO ---
-            F2u_NLO = F2_uncorr_NLO(W_plot)
-            F2u_err_NLO = F2_err_NLO(W_plot)
-            F2c_NLO = F2_TMC_NLO(W_plot)
-            F2c_err_NLO = F2_err_TMC_NLO(W_plot)
+    xsec_full = np.asarray(xsec_full)
+    xsec_1pi  = np.asarray(xsec_1pi)
+    xsec_2pi  = np.asarray(xsec_2pi)
 
-            # -------- Plot LO --------
-            ax.plot(W_plot, F2u_LO, label=r"LO $F_2^{(0)}$", color='blue', lw=1)
-            ax.fill_between(W_plot, F2u_LO - F2u_err_LO, F2u_LO + F2u_err_LO, color='blue', alpha=0.3)
-            #ax.plot(W_plot, F2c_LO, label=r"LO $F_2^{TMC}$", color='blue', linestyle='--', lw=1)
-            #ax.fill_between(W_plot, F2c_LO - F2c_err_LO, F2c_LO + F2c_err_LO, color='blue', alpha=0.15)
+    # --------- Plot ---------
+    plt.figure(figsize=(8, 6))
+    header_text = f"$Q^2$ = {fixed_Q2:.3f} GeV$^2$,  E = {beam_energy:.2f} GeV"
+    plt.plot([], [], ' ', label=header_text)
 
-            # -------- Plot NLO --------
-            ax.plot(W_plot, F2u_NLO, label=r"NLO $F_2^{(0)}$", color='red', lw=1)
-            ax.fill_between(W_plot, F2u_NLO - F2u_err_NLO, F2u_NLO + F2u_err_NLO, color='red', alpha=0.3)
-            #ax.plot(W_plot, F2c_NLO, label=r"NLO $F_2^{TMC}$", color='red', linestyle='--', lw=1)
-            #ax.fill_between(W_plot, F2c_NLO - F2c_err_NLO, F2c_NLO + F2c_err_NLO, color='red', alpha=0.15)
+    h_full,  = plt.plot(W_vals, xsec_full,  color="black", lw=2, label="ANL-Osaka: full")
+    h_1pi,   = plt.plot(W_vals, xsec_1pi,   color="black", lw=2, ls="--", label="ANL-Osaka: 1π")
+    h_2pi,   = plt.plot(W_vals, xsec_2pi,   color="red",   lw=2, ls="-.", label="ANL-Osaka: 2π (full − 1π)")
 
-            # -------- Axes formatting --------
-            ax.set_title(fr"$Q^2 = {Q2}$ GeV$^2$")
-            ax.set_xlim(W_min, W_max)
-            ax.set_xlabel(r"$W$ [GeV]")
-            ax.set_ylabel(r"$F_2(W)$")
-            ax.grid(True)
-            ax.legend(fontsize=8)
-        except Exception as err:
-            ax.text(0.5, 0.5, f"Error Q²={Q2}\n{err}", transform=ax.transAxes,
-                    ha='center', va='center', color='red')
-            ax.axis('off')
-
-    for i in range(len(q2_vals), n_rows * n_cols):
-        row, col = divmod(i, n_cols)
-        axes[row, col].axis('off')
-
+    plt.xlabel("W (GeV)")
+    plt.ylabel(r"$d \sigma / dW\, dQ^2$ ($\mathrm{\mu bn/GeV^3}$)")
+    plt.grid(True)
+    plt.legend(fontsize="small", loc="upper left")
     plt.tight_layout()
-    plt.savefig("F2_TMC_LO_vs_NLO.pdf", format="pdf")
-    print("Saved F2 TMC comparison plot to F2_TMC_LO_vs_NLO.pdf")
-    plt.show()
-    
-    
-    
 
+    os.makedirs("anl_osaka_model", exist_ok=True)
+    fig_name = f"anl_osaka_model/anl_osaka_model_Q2={fixed_Q2}_E={beam_energy}.pdf"
+    plt.savefig(fig_name, dpi=300)
+    plt.close()
+    print("Saved →", fig_name)
+
+
+def fit_inclusive_scaling(              # global fit - all Q2 bins 
+    exp_folder="exp_data_to_fit",
+    Q2_ref=2.774,
+    E_ref=10.6,
+    W_max_fit=2.0,
+    full_file="input_data/wempx.dat",
+    onepi_file="input_data/wemp-pi.dat",
+    clamp_nonneg_2pi=True,
+    save_tag="scalingfit"
+):
+    """
+    Final driver that:
+      1) loads and prepares exp data,
+      2) evaluates 1π/2π reference shapes at (Q2_ref, E_ref),
+      3) builds and runs the global least-squares fit,
+      4) writes a text results file,
+      5) creates an overview plot across Q² bins including components:
+         F2×1π and F2'×2π.
+    """
+    # 1) Load & prep
+    df = read_and_prepare_data(exp_folder, W_max_fit)
+
+    # 2) Reference shapes
+    df = compute_reference_shapes_for_df(
+        df, Q2_ref=Q2_ref, E_ref=E_ref,
+        full_file=full_file, onepi_file=onepi_file,
+        clamp_nonneg_2pi=clamp_nonneg_2pi,
+    )
+
+    # 3) Build cost & fit
+    cost, x_tuple, y, yerr = build_least_squares_from_df(df)
+    m = run_minuit(cost)
+
+    # 4) Save results file
+    os.makedirs("fit_results", exist_ok=True)
+    tag = f"{save_tag}_Q2ref={Q2_ref}_E={E_ref}"
+    res_path = f"fit_results/fit_{tag}.txt"
+    with open(res_path, "w") as f:
+        f.write(f"Scaling fit with fixed 1π/2π shapes at Q²_ref={Q2_ref}, E_ref={E_ref}\n")
+        f.write("=" * 72 + "\n")
+        f.write(f"Valid minimization: {m.fmin.is_valid}\n")
+        f.write(f"EDM: {m.fmin.edm:.3e}  (tol={m.tol})\n")
+        f.write(f"Chi2 / NDF: {m.fval:.2f} / {m.ndof} = {m.fval / m.ndof:.3f}\n\n")
+        f.write("Parameters:\n")
+        for name in m.parameters:
+            f.write(f"  {name:>4} = {m.values[name]: .6e} ± {m.errors[name]: .6e}\n")
+
+        f.write("\nCorrelation matrix (full):\n\n")
+        names = list(m.parameters)
+        f.write(f"{'':>8}" + "".join(f"{n:>12}" for n in names) + "\n")
+        for r in names:
+            f.write(f"{r:>8}")
+            for c in names:
+                f.write(f"{m.covariance[r, c]:12.3f}")
+            f.write("\n")
+    print("Saved →", res_path)
+
+    # 5) Overview plot with components
+    os.makedirs("fit_plots", exist_ok=True)
+    q2_bins = [float(q) for q in sorted(df["Q2"].unique())]
+    n = len(q2_bins)
+    ncols = 3 if n >= 3 else n
+    nrows = int(np.ceil(n / ncols)) if ncols else 1
+
+    fig, axes = plt.subplots(nrows, ncols, figsize=(5*ncols, 4*nrows), squeeze=False)
+    axes = axes.flatten()
+
+    params = {k: m.values[k] for k in m.parameters}
+    predict_total = make_predict_curve_function(
+        Q2_ref=Q2_ref, E_ref=E_ref,
+        onepi_file=onepi_file, full_file=full_file,
+        clamp_nonneg_2pi=clamp_nonneg_2pi,
+        fitted_params=params,
+    )
+    predict_1pi, predict_2pi = make_component_curve_functions(
+        Q2_ref=Q2_ref, E_ref=E_ref,
+        onepi_file=onepi_file, full_file=full_file,
+        clamp_nonneg_2pi=clamp_nonneg_2pi,
+        fitted_params=params,
+    )
+
+    W_dense = np.linspace(max(1.05, float(df["W"].min())), W_max_fit, 300)
+
+    for ax, q2 in zip(axes, q2_bins):
+        sub = df[df["Q2"] == q2]
+        x = sub["W"].to_numpy(dtype=float)
+        y = sub["XSEC"].to_numpy(dtype=float)
+        ye = sub["uncertainty"].to_numpy(dtype=float)
+
+        # Data
+        ax.errorbar(x, y, yerr=ye, fmt="o", ms=3, capsize=1, label=f"Data Q²={q2:.3f}")
+
+        # Fit and components
+        ax.plot(W_dense, predict_total(W_dense, q2), "k-",  lw=1.8, label="Fit (total)")
+        ax.plot(W_dense, predict_1pi(W_dense, q2),   "--",  lw=1.4, color="tab:blue",   label=r"$F_2\times 1\pi$")
+        ax.plot(W_dense, predict_2pi(W_dense, q2),   ":",   lw=1.6, color="tab:orange", label=r"$F_2'\times 2\pi$")
+
+        ax.set_title(f"Q² = {q2:.3f} GeV²")
+        ax.set_xlabel("W (GeV)")
+        ax.set_ylabel(r"$d^2\sigma/dW\,dQ^2$ [$\mu b/\mathrm{GeV}^3$]")
+        ax.grid(True)
+        ax.legend(fontsize=8)
+        ax.axvline(W_max_fit, color="gray", ls="--", lw=1)
+
+    # hide any unused axes
+    for j in range(len(q2_bins), len(axes)):
+        fig.delaxes(axes[j])
+
+    fig.suptitle(f"Global scaling fit (Q²_ref={Q2_ref}, E_ref={E_ref})", fontsize=14)
+    fig.tight_layout(rect=[0, 0, 1, 0.96])
+    plot_path = f"fit_plots/fit_{tag}_overview.png"
+    plt.savefig(plot_path, dpi=300)
+    plt.close()
+    print("Saved →", plot_path)
+    
+    
+def fit_inclusive_scaling_per_bin(
+    exp_folder="exp_data_to_fit",
+    Q2_ref=2.774,
+    E_ref=10.6,
+    W_max_fit=2.0,
+    full_file="input_data/wempx.dat",
+    onepi_file="input_data/wemp-pi.dat",
+    clamp_nonneg_2pi=True,
+    save_tag="individual_Q2_fit",
+):
+    """
+    Fit each Q² bin independently and:
+      - Save ONE compact text file with all bins' results
+      - Save ONE 3x3 overview plot (all bins) with Data, Total, F2×1π, F2'×2π, and χ²/ndf on each panel
+      - Save a 2x3 plot of coefficients vs Q² (c1..c3, c1'..c3')
+
+    Outputs:
+      - fit_results/fit_individual_Q2_fit_Q2ref=<Q2_ref>_E=<E_ref>.txt
+      - fit_results/fit_individual_Q2_fit_summary_Q2ref=<Q2_ref>_E=<E_ref>.csv
+      - fit_plots/fit_individual_Q2_fit_Q2ref=<Q2_ref>_E=<E_ref>_overview.png
+      - fit_plots/fit_individual_Q2_fit_coeffs_Q2ref=<Q2_ref>_E=<E_ref>.png
+    """
+    print(f"→ Running per-Q² (individual) scaling fits over {exp_folder}/ …")
+
+    # 1) Load & prepare once
+    df = read_and_prepare_data(exp_folder, W_max_fit)
+
+    # 2) Precompute W-only reference shapes once at (Q2_ref, E_ref)
+    df = compute_reference_shapes_for_df(
+        df, Q2_ref=Q2_ref, E_ref=E_ref,
+        full_file=full_file, onepi_file=onepi_file,
+        clamp_nonneg_2pi=clamp_nonneg_2pi,
+    )
+
+    os.makedirs("fit_results", exist_ok=True)
+    os.makedirs("fit_plots",   exist_ok=True)
+
+    # 3) Fit each bin
+    q2_bins = [float(q) for q in sorted(df["Q2"].unique())]
+    bin_records = []   # to plot later
+    summary_rows = []  # to write CSV and compact TXT
+
+    for q2 in q2_bins:
+        sub = df[df["Q2"] == q2].copy()
+        npts = len(sub)
+        if npts < 8:
+            print(f"  [warn] Q²={q2:.3f} has only {npts} points; 6 params may be underconstrained.")
+
+        cost, *_ = build_least_squares_from_df(sub)
+        m = run_minuit(
+        cost,
+        multi_start=100,        # try e.g. 20 random restarts
+        jitter_scale=0.25,     # tweak if needed
+        strategy=2,            # more thorough line searches
+        seed=50                # reproducible randomness (optional)
+        )
+        # Capture minimization status
+        min_valid = bool(m.fmin.is_valid)
+        edm = float(m.fmin.edm)
+        tol = float(m.tol)
+        converged = edm < tol
+
+        # Store results for later plotting/printing
+        params = {k: m.values[k] for k in m.parameters}
+        perr   = {k: m.errors[k] for k in m.parameters}
+        rec = {
+            "q2": q2,
+            "sub": sub,
+            "params": params,
+            "perr": perr,
+            "chi2": m.fval,
+            "ndf": m.ndof,
+            "chi2_ndf": (m.fval / m.ndof if m.ndof else np.nan),
+            "npts": npts,
+            "min_valid": min_valid,
+            "edm": edm,
+            "tol": tol,
+            "converged": converged
+        }
+        bin_records.append(rec)
+
+        # Summary row
+        row = {"Q2": q2, "N": npts, "chi2": m.fval, "ndf": m.ndof,
+               "chi2_ndf": (m.fval / m.ndof if m.ndof else np.nan)}
+        for name in m.parameters:
+            row[name] = m.values[name]
+            row[name + "_err"] = m.errors[name]
+        summary_rows.append(row)
+
+    # 4) Write ONE compact TXT with all bins
+    tag = f"{save_tag}_Q2ref={Q2_ref}_E={E_ref}".replace(" ", "")
+    txt_path = f"fit_results/fit_{tag}.txt"
+    with open(txt_path, "w") as f:
+        f.write(f"Individual Q² scaling fits  (reference shapes at Q²_ref={Q2_ref}, E_ref={E_ref})\n")
+        f.write("=" * 86 + "\n\n")
+        for rec in bin_records:
+            q2 = rec["q2"]
+            f.write(f"Q² = {q2:.3f} GeV²   N = {rec['npts']}   χ²/ndf = {rec['chi2_ndf']:.3f}"
+                    f"  (χ²={rec['chi2']:.2f}, ndf={rec['ndf']})\n")
+
+            # NEW: status lines
+            f.write("Minimization status:\n")
+            f.write(f"  Valid minimization: {rec['min_valid']}\n")
+            f.write(f"  Converged (EDM < tol): {rec['converged']} "
+                    f"(EDM = {rec['edm']:.2e}, tol = {rec['tol']})\n")
+
+            p, e = rec["params"], rec["perr"]
+            f.write("  c1  = {: .6e} ± {: .6e}   c2  = {: .6e} ± {: .6e}   c3  = {: .6e} ± {: .6e}\n"
+                    .format(p["c1"], e["c1"], p["c2"], e["c2"], p["c3"], e["c3"]))
+            f.write("  c1' = {: .6e} ± {: .6e}   c2' = {: .6e} ± {: .6e}   c3' = {: .6e} ± {: .6e}\n\n"
+                    .format(p["c1p"], e["c1p"], p["c2p"], e["c2p"], p["c3p"], e["c3p"]))
+    print("Saved →", txt_path)
+
+    # 5) Write summary CSV as well (handy for further analysis)
+    summ = pd.DataFrame(summary_rows).sort_values("Q2")
+    csv_path = f"fit_results/fit_{tag}_summary.csv"
+    summ.to_csv(csv_path, index=False)
+    print("Saved →", csv_path)
+
+    # 6) One 3x3 overview plot with Data + Total + components + χ²/ndf per panel
+    n = len(q2_bins)
+    ncols = 3 if n >= 3 else n
+    nrows = int(np.ceil(n / ncols)) if ncols else 1
+    fig, axes = plt.subplots(nrows, ncols, figsize=(5*ncols, 4*nrows), squeeze=False)
+    axes = axes.flatten()
+
+    for ax, rec in zip(axes, bin_records):
+        q2 = rec["q2"]
+        sub = rec["sub"]
+
+        predict_total = make_predict_curve_function(
+            Q2_ref=Q2_ref, E_ref=E_ref,
+            onepi_file=onepi_file, full_file=full_file,
+            clamp_nonneg_2pi=clamp_nonneg_2pi,
+            fitted_params=rec["params"],
+        )
+        predict_1pi, predict_2pi = make_component_curve_functions(
+            Q2_ref=Q2_ref, E_ref=E_ref,
+            onepi_file=onepi_file, full_file=full_file,
+            clamp_nonneg_2pi=clamp_nonneg_2pi,
+            fitted_params=rec["params"],
+        )
+
+        W_dense = np.linspace(max(1.05, float(sub["W"].min())), W_max_fit, 300)
+        x  = sub["W"].to_numpy(float)
+        y  = sub["XSEC"].to_numpy(float)
+        ye = sub["uncertainty"].to_numpy(float)
+
+        # data + curves
+        ax.errorbar(x, y, yerr=ye, fmt="o", ms=3, capsize=1, label=f"Data")
+        ax.plot(W_dense, predict_total(W_dense, q2), "k-",  lw=1.8, label="Fit (total)")
+        ax.plot(W_dense, predict_1pi(W_dense, q2),   "--",  lw=1.4, color="tab:blue",   label=r"$F_2\times 1\pi$")
+        ax.plot(W_dense, predict_2pi(W_dense, q2),   ":",   lw=1.6, color="tab:orange", label=r"$F_2'\times 2\pi$")
+
+        # cosmetics
+        chi2_ndf = rec["chi2_ndf"]
+        ax.set_title(f"Q² = {q2:.3f} GeV² "rf" $\chi^2/\mathrm{{ndf}} = {chi2_ndf:.3f}$")
+        ax.set_xlabel("W (GeV)")
+        ax.set_ylabel(r"$d^2\sigma/dW\,dQ^2$ [$\mu b/\mathrm{GeV}^3$]")
+        ax.grid(True)
+        ax.axvline(W_max_fit, color="gray", ls="--", lw=1)
+
+        # Lean legend to first row only (avoids repetition); or just keep it small
+        ax.legend(fontsize=8)
+
+    # hide unused axes
+    for j in range(len(bin_records), len(axes)):
+        fig.delaxes(axes[j])
+
+    fig.suptitle(f"Individual Q² fits (reference: Q²={Q2_ref}, E={E_ref})", fontsize=14)
+    fig.tight_layout(rect=[0, 0, 1, 0.96])
+    overview_path = f"fit_plots/fit_{tag}_overview.png"
+    plt.savefig(overview_path, dpi=300)
+    plt.close()
+    print("Saved →", overview_path)
+
+    # 7) Coefficient-vs-Q² plots (6 panels with error bars)
+    pretty = {
+        "c1": r"$c_1$", "c2": r"$c_2$", "c3": r"$c_3$",
+        "c1p": r"$c'_1$", "c2p": r"$c'_2$", "c3p": r"$c'_3$",
+    }
+    keys = ["c1", "c2", "c3", "c1p", "c2p", "c3p"]
+
+    fig2, axes2 = plt.subplots(2, 3, figsize=(12, 7), squeeze=False)
+    axes2 = axes2.flatten()
+
+    q2_arr = np.array([rec["q2"] for rec in bin_records])
+    for i, key in enumerate(keys):
+        ax = axes2[i]
+        vals = np.array([rec["params"][key] for rec in bin_records])
+        errs = np.array([rec["perr"][key]   for rec in bin_records])
+        ax.errorbar(q2_arr, vals, yerr=errs, fmt="o-", ms=4, capsize=2)
+        ax.set_xlabel(r"$Q^2$ (GeV$^2$)")
+        ax.set_ylabel(pretty[key])
+        ax.set_title(f"{pretty[key]} vs $Q^2$")
+        ax.grid(True)
+
+    fig2.tight_layout()
+    coeffs_path = f"fit_plots/fit_{tag}_coeffs.png"
+    plt.savefig(coeffs_path, dpi=300)
+    plt.close()
+    print("Saved →", coeffs_path)

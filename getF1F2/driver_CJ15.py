@@ -16,11 +16,11 @@ h2p = -2.0701
 def mainF2F1():
   f2 = open("Output/F2_fixQ2_cj15.txt","w")
   f1 = open("Output/F1_fixQ2_cj15.txt","w")
-  fl = open("Output/FL_fixQ2_cj15.txt","w")
-  for j in range(1,5):
-    Q2 = j+0.025
-    for i in range(0,74):
-      W = 1.07+0.01*i#M+mpi+i*0.1
+  #fl = open("Output/FL_fixQ2_cj15.txt","w")
+  for j in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
+    Q2 = j
+    for i in range(0,110):
+      W = 1.07+0.01*i                         #M_prot+mpi+i*0.1
       nu = (W**2 - M**2 + Q2)/(2*M)
       x = Q2/(2.0*M*nu)
       rho = (1.0 + 4.0*x**2*M**2/Q2)**0.5
@@ -46,9 +46,13 @@ def mainF2F1():
       F1brady=F1brady0+(rho**2-1.0)/(4.0*rho**2)*(h2+(rho**2-1.0)/(2.0*x*rho)*g2)
       F1brady0alt=((1.0+4.0*thy.M**2/Q2*x**2)*F2brady0-FLbrady0)/(2.0*x)
       F1bradyalt=((1.0+4.0*thy.M**2/Q2*x**2)*F2brady-FLbrady)/(2.0*x)
+      
+      F1bradyht=((1.0+4.0*thy.M**2/Q2*x**2)*F2bradyht-FLbradyht)/(2.0*x) # Can I do this? Analogous to F1bradyalt
+      
+      #Write out -----------------------------------------------------------------------------------------------------------------------------------
       f2.write(str(Q2)+"\t"+str(W)+"\t"+str(F2naked)+"\t"+str(F2moffat)+"\t"+str(F2brady0)+"\t"+str(F2brady)+"\t"+str(F2bradyht)+"\n")
-      fl.write(str(Q2)+"\t"+str(W)+"\t"+str(FLnaked)+"\t"+str(FLmoffat)+"\t"+str(FLbrady0)+"\t"+str(FLbrady)+"\t"+str(FLbradyht)+"\n")
-      f1.write(str(Q2)+"\t"+str(W)+"\t"+str(F1brady)+"\t"+str(F1bradyalt)+"\n")
+      #fl.write(str(Q2)+"\t"+str(W)+"\t"+str(FLnaked)+"\t"+str(FLmoffat)+"\t"+str(FLbrady0)+"\t"+str(FLbrady)+"\t"+str(FLbradyht)+"\n")
+      f1.write(str(Q2)+"\t"+str(W)+"\t"+str(F1brady)+"\t"+str(F1bradyalt)+"\t"+str(F1bradyht)+"\n")
 
 #	Writes FL fixed Q2 files
 def mainFLQ2():
@@ -169,17 +173,17 @@ def mainF2trunc():
 
 def mainTMC():
   f1a = open("Output/F1TMC_abs_cj15.txt","w")
-  f1r0 = open("Output/F1TMC_rel_uncorr_cj15.txt","w")
-  f1rOPE = open("Output/F1TMC_rel_OPE_cj15.txt","w")
+  #f1r0 = open("Output/F1TMC_rel_uncorr_cj15.txt","w")
+  #f1rOPE = open("Output/F1TMC_rel_OPE_cj15.txt","w")
   f2a = open("Output/F2TMC_abs_cj15.txt","w")
-  f2r0 = open("Output/F2TMC_rel_uncorr_cj15.txt","w")
-  f2rOPE = open("Output/F2TMC_rel_OPE_cj15.txt","w")
-  fla = open("Output/FLTMC_abs_cj15.txt","w")
-  flr0 = open("Output/FLTMC_rel_uncorr_cj15.txt","w")
-  flrOPE = open("Output/FLTMC_rel_OPE_cj15.txt","w")
-  for j in range(1,90):
+  #f2r0 = open("Output/F2TMC_rel_uncorr_cj15.txt","w")
+  #f2rOPE = open("Output/F2TMC_rel_OPE_cj15.txt","w")
+  #fla = open("Output/FLTMC_abs_cj15.txt","w")
+  #flr0 = open("Output/FLTMC_rel_uncorr_cj15.txt","w")
+  #flrOPE = open("Output/FLTMC_rel_OPE_cj15.txt","w")
+  for j in range(1,100):
     x = j/100.
-    Q2=2.
+    Q2=2.774
     rho = (1.0 + 4.0*x**2*M**2/Q2)**0.5
     xN = 2.0*x/(1.+rho)
     h2integrand=lambda u:thy.get_F2(u,Q2,'p')/u**2
@@ -210,20 +214,20 @@ def mainTMC():
     F1bradyalt=((1.0+4.0*thy.M**2/Q2*x**2)*F2brady-FLbrady)/(2.0*x)
 
     f1a.write(str(x)+"\t"+str(F1naked)+"\t"+str(F1moffat)+"\t"+str(F1brady0)+"\t"+str(F1brady)+"\t"+str(F1nakedalt)+"\t"+str(F1moffatalt)+"\t"+str(F1brady0alt)+"\t"+str(F1bradyalt)+"\n")
-    f1r0.write(str(x)+"\t"+str(F1moffat/F1naked)+"\t"+str(F1brady/F1naked)+"\t"+str(F1brady0/F1naked)+"\t"+str(F1moffatalt/F1nakedalt)+"\t"+str(F1bradyalt/F1nakedalt)+"\t"+str(F1brady0alt/F1nakedalt)+"\n")
-    f1rOPE.write(str(x)+"\t"+str(F1naked/F1brady)+"\t"+str(F1moffat/F1brady)+"\t"+str(F1brady0/F1brady)+"\t"+str(F1nakedalt/F1bradyalt)+"\t"+str(F1moffatalt/F1bradyalt)+"\t"+str(F1brady0alt/F1bradyalt)+"\n")
+    #f1r0.write(str(x)+"\t"+str(F1moffat/F1naked)+"\t"+str(F1brady/F1naked)+"\t"+str(F1brady0/F1naked)+"\t"+str(F1moffatalt/F1nakedalt)+"\t"+str(F1bradyalt/F1nakedalt)+"\t"+str(F1brady0alt/F1nakedalt)+"\n")
+    #f1rOPE.write(str(x)+"\t"+str(F1naked/F1brady)+"\t"+str(F1moffat/F1brady)+"\t"+str(F1brady0/F1brady)+"\t"+str(F1nakedalt/F1bradyalt)+"\t"+str(F1moffatalt/F1bradyalt)+"\t"+str(F1brady0alt/F1bradyalt)+"\n")
     f2a.write(str(x)+"\t"+str(F2naked)+"\t"+str(F2moffat)+"\t"+str(F2brady0)+"\t"+str(F2brady)+"\n")
-    f2r0.write(str(x)+"\t"+str(F2moffat/F2naked)+"\t"+str(F2brady/F2naked)+"\t"+str(F2brady0/F2naked)+"\n")
-    f2rOPE.write(str(x)+"\t"+str(F2naked/F2brady)+"\t"+str(F2moffat/F2brady)+"\t"+str(F2brady0/F2brady)+"\n")
-    fla.write(str(x)+"\t"+str(FLnaked)+"\t"+str(FLmoffat)+"\t"+str(FLbrady0)+"\t"+str(FLbrady)+"\n")
-    flr0.write(str(x)+"\t"+str(FLmoffat/FLnaked)+"\t"+str(FLbrady/FLnaked)+"\t"+str(FLbrady0/FLnaked)+"\n")
-    flrOPE.write(str(x)+"\t"+str(FLnaked/FLbrady)+"\t"+str(FLmoffat/FLbrady)+"\t"+str(FLbrady0/FLbrady)+"\n")
+    #f2r0.write(str(x)+"\t"+str(F2moffat/F2naked)+"\t"+str(F2brady/F2naked)+"\t"+str(F2brady0/F2naked)+"\n")
+    #f2rOPE.write(str(x)+"\t"+str(F2naked/F2brady)+"\t"+str(F2moffat/F2brady)+"\t"+str(F2brady0/F2brady)+"\n")
+    #fla.write(str(x)+"\t"+str(FLnaked)+"\t"+str(FLmoffat)+"\t"+str(FLbrady0)+"\t"+str(FLbrady)+"\n")
+    #flr0.write(str(x)+"\t"+str(FLmoffat/FLnaked)+"\t"+str(FLbrady/FLnaked)+"\t"+str(FLbrady0/FLnaked)+"\n")
+    #flrOPE.write(str(x)+"\t"+str(FLnaked/FLbrady)+"\t"+str(FLmoffat/FLbrady)+"\t"+str(FLbrady0/FLbrady)+"\n")
 
 
 if __name__== "__main__":
-     mainTMC()
+     #mainTMC()
 #    mainF2trunc()
-    #mainF2F1()
+     mainF2F1()
     #mainFLQ2()
 #    mainFLW()
 
