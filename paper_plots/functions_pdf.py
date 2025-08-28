@@ -96,8 +96,8 @@ def get_nlo_pdf_interpolators(fixed_Q2):
     """
 
     folder = "../getF1F2/Output"
-    f1_file = f"{folder}/F1_fixQ2_cj15.txt"
-    f2_file = f"{folder}/F2_fixQ2_cj15.txt"
+    f1_file = f"{folder}/small_Q2_F1_cj15.txt"
+    f2_file = f"{folder}/small_Q2_F2_cj15.txt"
 
     # Load F1 and F2 files
     df1 = pd.read_csv(f1_file, sep=r'\s+', header=None,
@@ -192,8 +192,7 @@ def compute_cross_section_pdf_with_error(W, Q2, beam_energy,
         return dcrs
     
     
-def get_nlo_pdf_cross_sections(W, Q2, beam_energy,
-                               F1_interp, F2_interp):
+def get_nlo_pdf_cross_sections(W, Q2, beam_energy, F1_interp, F2_interp):
     """
     Computes the differential cross section using NLO PDF-based
     structure function interpolators (Brady tables).
@@ -242,3 +241,76 @@ def get_nlo_pdf_cross_sections(W, Q2, beam_energy,
     dcrs = fcrs3 * fac3 * xxx
 
     return dcrs
+
+
+def get_lo_pdf_xsecs_table(q2_list, beam_energy,
+                           out_dir="lo_pdf_tables",
+                           fmt="%.6e"):
+    """
+    For each Q² in q2_list, compute LO PDF cross sections (with LO error band)
+    over the W grid returned by get_pdf_interpolators_with_error, and save a
+    3-column table:
+        #W    lo_pdf_xsect    error
+    Files are saved under out_dir as: lo_pdf_xsecs_Q2={Q2}_E={E}.dat
+
+    Args:
+        q2_list (iterable): list/tuple of Q² values (GeV²)
+        beam_energy (float): beam energy (GeV)
+        out_dir (str): output directory
+        fmt (str): numpy savetxt format for numbers (default scientific: '%.6e')
+
+    Returns:
+        list of str: paths to the written files
+    """
+    import os
+    import numpy as np
+
+    os.makedirs(out_dir, exist_ok=True)
+    out_paths = []
+
+    for q2 in q2_list:
+        try:
+            F1_W, F2_W, F1_err_f, F2_err_f, W_range = get_pdf_interpolators_with_error(q2, central_iset=400)
+        except Exception as e:
+            print(f"[WARN] Skipping Q²={q2}: failed to build LO interpolators ({e})")
+            continue
+
+        W_vals, sig_vals, err_vals = [], [], []
+
+        for W in W_range:
+            try:
+                sigma, sigma_err = compute_cross_section_pdf_with_error(
+                    W, q2, beam_energy, F1_W, F2_W, F1_err_f, F2_err_f
+                )
+                W_vals.append(W)
+                sig_vals.append(sigma)
+                err_vals.append(sigma_err)
+            except Exception:
+                # kinematically invalid point (e.g., W>wtot or E'<0) → skip row
+                continue
+
+        if len(W_vals) == 0:
+            print(f"[WARN] No valid points for Q²={q2} at E={beam_energy}. Skipping file.")
+            continue
+
+        W_vals = np.asarray(W_vals, dtype=float)
+        sig_vals = np.asarray(sig_vals, dtype=float)
+        err_vals = np.asarray(err_vals, dtype=float)
+
+        table = np.column_stack([W_vals, sig_vals, err_vals])
+
+        q2_str = str(q2).rstrip("0").rstrip(".")
+        fname = f"lo_pdf_xsecs_Q2={q2_str}_E={beam_energy}.dat"
+        out_path = os.path.join(out_dir, fname)
+
+        header = "#W\tlo_pdf_xsect\terror"
+        np.savetxt(out_path, table, fmt=fmt, delimiter="\t", header=header, comments="")
+
+        out_paths.append(out_path)
+        print(f"Saved → {out_path}")
+
+    return out_paths
+
+
+get_lo_pdf_xsecs_table([12,14],15)
+get_lo_pdf_xsecs_table([16,18],22)

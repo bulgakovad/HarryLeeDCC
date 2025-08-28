@@ -103,10 +103,82 @@ def generate_table_xsecs(file_path, fixed_Q2, beam_energy, onepi_file="input_dat
         output_rows.append([W_val, xsec_full, xsec_1pi])
 
     header = "W\txsec_full\txsec_1pi"
-    output_filename = f"tables_xsecs/xsecs_for_Q2={fixed_Q2}.txt"
+    output_filename = f"tables_xsecs/xsecs_for_Q2={fixed_Q2}_E={beam_energy}.txt"
     os.makedirs("tables_xsecs", exist_ok=True)
     np.savetxt(output_filename, np.array(output_rows), header=header, fmt="%.6e", delimiter="\t")
     print(f"Table saved as {output_filename}")
+    
+def generate_pdf_xsecs_table(fixed_Q2, beam_energy,
+                             out_dir="pdf_tables",
+                             use_F1_alt=False,
+                             W_vals=None,
+                             filename=None):
+    """
+    Create a .dat table with columns:
+        Q2  W  TMC_xsection  TMC_HT_xsection
+    using NLO Brady tables and your get_nlo_* helpers.
+
+    Args:
+        fixed_Q2 (float): Q² value in GeV²
+        beam_energy (float): beam energy in GeV
+        out_dir (str): output directory (created if missing)
+        use_F1_alt (bool): if True, use F1_brady_alt instead of F1_brady
+        W_vals (array-like or None): custom W grid. If None, uses the common W grid from interpolators
+        filename (str or None): custom filename. If None, auto-named.
+
+    Returns:
+        str: path to the written .dat file
+    """
+    import os
+    import numpy as np
+
+    # Build NLO interpolators
+    F1_brady, F1_brady_alt, F1_bradyHT, F2_brady, F2_HT, W_common = get_nlo_pdf_interpolators(fixed_Q2)
+
+    # Choose F1
+    F1_use = F1_brady_alt if use_F1_alt else F1_brady
+    F1_use_ht = F1_bradyHT
+
+    # Choose W grid
+    if W_vals is None:
+        W_vals = np.asarray(W_common, dtype=float)
+    else:
+        W_vals = np.asarray(W_vals, dtype=float)
+
+    # Compute cross sections
+    tmc_vals = []
+    tmc_ht_vals = []
+    for W in W_vals:
+        try:
+            tmc_vals.append(get_nlo_pdf_cross_sections(W, fixed_Q2, beam_energy,
+                                                       F1_interp=F1_use, F2_interp=F2_brady))
+        except Exception:
+            tmc_vals.append(np.nan)
+        try:
+            tmc_ht_vals.append(get_nlo_pdf_cross_sections(W, fixed_Q2, beam_energy,
+                                                          F1_interp=F1_use_ht, F2_interp=F2_HT))
+        except Exception:
+            tmc_ht_vals.append(np.nan)
+
+    tmc_vals = np.asarray(tmc_vals, dtype=float)
+    tmc_ht_vals = np.asarray(tmc_ht_vals, dtype=float)
+
+    # Assemble table: Q2, W, TMC_xsection, TMC_HT_xsection
+    Q2_col = np.full_like(W_vals, float(fixed_Q2), dtype=float)
+    table = np.column_stack([Q2_col, W_vals, tmc_vals, tmc_ht_vals])
+
+    # Save
+    os.makedirs(out_dir, exist_ok=True)
+    if filename is None:
+        q2_str = str(fixed_Q2).rstrip("0").rstrip(".")
+        filename = f"pdf_xsecs_Q2={q2_str}_E={beam_energy}.dat"
+    out_path = os.path.join(out_dir, filename)
+
+    header = "Q2\tW\tTMC_xsection\tTMC_HT_xsection"
+    np.savetxt(out_path, table, fmt="%.6e", delimiter="\t", header=header, comments="")
+
+    return out_path
+
 
     
 def compare_strfun(fixed_Q2, beam_energy,
@@ -1020,3 +1092,21 @@ def fit_inclusive_scaling_per_bin(
     plt.savefig(coeffs_path, dpi=300)
     plt.close()
     print("Saved →", coeffs_path)
+
+#generate_pdf_xsecs_table(2.774, 10.6)
+#generate_pdf_xsecs_table(3.244, 10.6)
+#generate_pdf_xsecs_table(3.793, 10.6)
+#generate_pdf_xsecs_table(4.435, 10.6)
+#generate_pdf_xsecs_table(5.187, 10.6)
+#generate_pdf_xsecs_table(6.065, 10.6)
+#generate_pdf_xsecs_table(7.093, 10.6)
+#generate_pdf_xsecs_table(8.294, 10.6)
+#generate_pdf_xsecs_table(9.699, 10.6)
+
+generate_pdf_xsecs_table(0.75, 1.5)
+generate_pdf_xsecs_table(1.75, 2.5)
+generate_pdf_xsecs_table(2.5, 4)
+generate_pdf_xsecs_table(0.5, 10.6)
+generate_pdf_xsecs_table(1, 10.6)
+generate_pdf_xsecs_table(2, 10.6)
+generate_pdf_xsecs_table(3, 10.6)

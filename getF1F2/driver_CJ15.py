@@ -14,10 +14,11 @@ h2p = -2.0701
 
 #	Writes F2 fixed Q2 files
 def mainF2F1():
-  f2 = open("Output/F2_fixQ2_cj15.txt","w")
-  f1 = open("Output/F1_fixQ2_cj15.txt","w")
+  f2 = open("Output/small_Q2_F2_cj15.txt","w")
+  f1 = open("Output/small_Q2_F1_cj15.txt","w")
   #fl = open("Output/FL_fixQ2_cj15.txt","w")
-  for j in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
+  #for j in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
+  for j in [0.5, 0.75, 1, 1.75, 2, 2.5, 3]:
     Q2 = j
     for i in range(0,110):
       W = 1.07+0.01*i                         #M_prot+mpi+i*0.1
@@ -100,13 +101,13 @@ def mainFLW():
 def mainF2trunc():
   f2 = open("Output/F2_trunc_cj15.txt","w")
   f1 = open("Output/F1_trunc_cj15.txt","w")
-  fl = open("Output/FL_trunc_cj15.txt","w")
-  for j in range(100,401):
-    Q2 = j/100.
-    W0 = np.sqrt(1.125)
-    Wmax = np.sqrt(1.9)
-    Wmax2 = np.sqrt(2.5)
-    Wmax3 = np.sqrt(3.1)
+  #fl = open("Output/FL_trunc_cj15.txt","w")
+  for q in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
+    Q2 = q
+    W0 = np.sqrt(1.125) # W = 1.061 GeV
+    Wmax = np.sqrt(1.9) # W = 1.378 GeV
+    Wmax2 = np.sqrt(2.5) # W = 1.581 GeV
+    Wmax3 = np.sqrt(3.1) # W = 1.761 GeV
     nu0 = (W0**2 - M**2 + Q2)/(2*M)
     numax = (Wmax**2 - M**2 + Q2)/(2*M)
     numax2 = (Wmax2**2 - M**2 + Q2)/(2*M)
@@ -166,7 +167,7 @@ def mainF2trunc():
     FLbradyall=thy.integrator(FLbrady0int,x03,xmax,n=10)+thy.integrator(FLxint,x03,xmax,n=10)+fixed_quad(np.vectorize(FLbradyux),x03,xmax,n=10)[0]
     f2.write(str(Q2)+"\t"+str(F2bradyht)+"\t"+str(F2bradyht2)+"\t"+str(F2bradyht3)+"\t"+str(F2bradyhtall)+"\t"+str(F2brady)+"\t"+str(F2brady2)+"\t"+str(F2brady3)+"\t"+str(F2bradyall)+"\t"+str(F2naked)+"\t"+str(F2naked2)+"\t"+str(F2naked3)+"\t"+str(F2nakedall)+"\n")
     f1.write(str(Q2)+"\t"+str(F1brady)+"\t"+str(F1brady2)+"\t"+str(F1brady3)+"\t"+str(F1bradyall)+"\n")
-    fl.write(str(Q2)+"\t"+str(FLbradyht)+"\t"+str(FLbradyht2)+"\t"+str(FLbradyht3)+"\t"+str(FLbradyhtall)+"\t"+str(FLbrady)+"\t"+str(FLbrady2)+"\t"+str(FLbrady3)+"\t"+str(FLbradyall)+"\n")
+    #fl.write(str(Q2)+"\t"+str(FLbradyht)+"\t"+str(FLbradyht2)+"\t"+str(FLbradyht3)+"\t"+str(FLbradyhtall)+"\t"+str(FLbrady)+"\t"+str(FLbrady2)+"\t"+str(FLbrady3)+"\t"+str(FLbradyall)+"\n")
 
 
 
@@ -226,7 +227,7 @@ def mainTMC():
 
 if __name__== "__main__":
      #mainTMC()
-#    mainF2trunc()
+     #mainF2trunc()
      mainF2F1()
     #mainFLQ2()
 #    mainFLW()
