@@ -14,13 +14,13 @@ h2p = -2.0701
 
 #	Writes F2 fixed Q2 files
 def mainF2F1():
-  f2 = open("Output/small_Q2_F2_cj15.txt","w")
-  f1 = open("Output/small_Q2_F1_cj15.txt","w")
+  f2 = open("Output/ALL_Q2_broad_W_F2_cj15.txt","w")
+  f1 = open("Output/ALL_Q2_broad_W_F1_cj15.txt","w")
   #fl = open("Output/FL_fixQ2_cj15.txt","w")
   #for j in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
-  for j in [0.5, 0.75, 1, 1.75, 2, 2.5, 3]:
+  for j in [0.5, 0.75, 1, 1.75, 2, 2.5, 3, 2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699, 12, 14, 16, 18, 20]:
     Q2 = j
-    for i in range(0,110):
+    for i in range(0,310):
       W = 1.07+0.01*i                         #M_prot+mpi+i*0.1
       nu = (W**2 - M**2 + Q2)/(2*M)
       x = Q2/(2.0*M*nu)

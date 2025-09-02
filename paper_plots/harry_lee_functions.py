@@ -108,76 +108,116 @@ def generate_table_xsecs(file_path, fixed_Q2, beam_energy, onepi_file="input_dat
     np.savetxt(output_filename, np.array(output_rows), header=header, fmt="%.6e", delimiter="\t")
     print(f"Table saved as {output_filename}")
     
-def generate_pdf_xsecs_table(fixed_Q2, beam_energy,
-                             out_dir="pdf_tables",
-                             use_F1_alt=False,
-                             W_vals=None,
-                             filename=None):
+
+def compare_F2(Q2_list, num_points=400, W_cutoff=4.0):
     """
-    Create a .dat table with columns:
-        Q2  W  TMC_xsection  TMC_HT_xsection
-    using NLO Brady tables and your get_nlo_* helpers.
-
-    Args:
-        fixed_Q2 (float): Q² value in GeV²
-        beam_energy (float): beam energy in GeV
-        out_dir (str): output directory (created if missing)
-        use_F1_alt (bool): if True, use F1_brady_alt instead of F1_brady
-        W_vals (array-like or None): custom W grid. If None, uses the common W grid from interpolators
-        filename (str or None): custom filename. If None, auto-named.
-
-    Returns:
-        str: path to the written .dat file
+    For each Q² in Q2_list, plot:
+      - F2 LO (CJ15) with Hessian error band
+      - F2 NLO (Brady, TMC only)
+      - F2 NLO (Brady, TMC + HT)
+    up to W_cutoff, respecting each dataset’s native W range.
+    Saves one PDF per Q² under compare_F2/.
     """
-    import os
-    import numpy as np
 
-    # Build NLO interpolators
-    F1_brady, F1_brady_alt, F1_bradyHT, F2_brady, F2_HT, W_common = get_nlo_pdf_interpolators(fixed_Q2)
+    os.makedirs("compare_F2", exist_ok=True)
 
-    # Choose F1
-    F1_use = F1_brady_alt if use_F1_alt else F1_brady
-    F1_use_ht = F1_bradyHT
-
-    # Choose W grid
-    if W_vals is None:
-        W_vals = np.asarray(W_common, dtype=float)
-    else:
-        W_vals = np.asarray(W_vals, dtype=float)
-
-    # Compute cross sections
-    tmc_vals = []
-    tmc_ht_vals = []
-    for W in W_vals:
+    for Q2 in Q2_list:
+        # --- Build interpolators ---
+        have_lo = have_nlo = False
         try:
-            tmc_vals.append(get_nlo_pdf_cross_sections(W, fixed_Q2, beam_energy,
-                                                       F1_interp=F1_use, F2_interp=F2_brady))
+            # LO: get F2 and its error as functions of W
+            _, F2_lo, _, F2_lo_err, W_lo_rng = get_pdf_interpolators_with_error(Q2, central_iset=400)
+            W_lo_min, W_lo_max = float(np.min(W_lo_rng)), float(np.max(W_lo_rng))
+            have_lo = True
         except Exception:
-            tmc_vals.append(np.nan)
+            pass
+
         try:
-            tmc_ht_vals.append(get_nlo_pdf_cross_sections(W, fixed_Q2, beam_energy,
-                                                          F1_interp=F1_use_ht, F2_interp=F2_HT))
+            # NLO (Brady): F2 TMC only and TMC+HT
+            _, _, _, F2_b, F2_bHT, W_nlo_rng = get_nlo_pdf_interpolators(Q2)
+            W_nlo_min, W_nlo_max = float(np.min(W_nlo_rng)), float(np.max(W_nlo_rng))
+            have_nlo = True
         except Exception:
-            tmc_ht_vals.append(np.nan)
+            pass
 
-    tmc_vals = np.asarray(tmc_vals, dtype=float)
-    tmc_ht_vals = np.asarray(tmc_ht_vals, dtype=float)
+        if not (have_lo or have_nlo):
+            print(f"[WARN] Q²={Q2}: no LO/NLO F2 available — skipping.")
+            continue
 
-    # Assemble table: Q2, W, TMC_xsection, TMC_HT_xsection
-    Q2_col = np.full_like(W_vals, float(fixed_Q2), dtype=float)
-    table = np.column_stack([Q2_col, W_vals, tmc_vals, tmc_ht_vals])
+        # --- W grid up to cutoff ---
+        wmins = []
+        if have_lo:  wmins.append(W_lo_min)
+        if have_nlo: wmins.append(W_nlo_min)
+        W_min_global = max(1.0, min(wmins)) if wmins else 1.0
+        W_vals = np.linspace(W_min_global, W_cutoff, num_points)
 
-    # Save
-    os.makedirs(out_dir, exist_ok=True)
-    if filename is None:
-        q2_str = str(fixed_Q2).rstrip("0").rstrip(".")
-        filename = f"pdf_xsecs_Q2={q2_str}_E={beam_energy}.dat"
-    out_path = os.path.join(out_dir, filename)
+        # --- Evaluate (only within native ranges) ---
+        F2_lo_vals = np.full_like(W_vals, np.nan, dtype=float)
+        F2_lo_unc  = np.full_like(W_vals, np.nan, dtype=float)
+        if have_lo:
+            m = (W_vals >= W_lo_min) & (W_vals <= W_lo_max)
+            try:
+                F2_lo_vals[m] = F2_lo(W_vals[m])
+                F2_lo_unc[m]  = F2_lo_err(W_vals[m])
+            except Exception:
+                pass
 
-    header = "Q2\tW\tTMC_xsection\tTMC_HT_xsection"
-    np.savetxt(out_path, table, fmt="%.6e", delimiter="\t", header=header, comments="")
+        F2_b_vals   = np.full_like(W_vals, np.nan, dtype=float)
+        F2_bHT_vals = np.full_like(W_vals, np.nan, dtype=float)
+        if have_nlo:
+            m = (W_vals >= W_nlo_min) & (W_vals <= W_nlo_max)
+            try:
+                F2_b_vals[m] = F2_b(W_vals[m])
+            except Exception:
+                pass
+            try:
+                F2_bHT_vals[m] = F2_bHT(W_vals[m])
+            except Exception:
+                pass
 
-    return out_path
+        # --- Plot ---
+        plt.figure(figsize=(8, 6))
+        handles = [plt.Line2D([], [], color='white', label=f"Q² = {Q2:.3f} GeV²")]
+
+        # LO with error band
+        if np.isfinite(F2_lo_vals).any():
+            good = np.isfinite(F2_lo_vals)
+            h_lo, = plt.plot(W_vals[good], F2_lo_vals[good],
+                             label="F2 LO (CJ15)", color="blue", ls="dotted", lw=1.5)
+            # error band where both value & error are finite
+            good_band = good & np.isfinite(F2_lo_unc)
+            if good_band.any():
+                plt.fill_between(W_vals[good_band],
+                                 F2_lo_vals[good_band] - F2_lo_unc[good_band],
+                                 F2_lo_vals[good_band] + F2_lo_unc[good_band],
+                                 color="blue", alpha=0.25, linewidth=0)
+            handles.append(h_lo)
+
+        # NLO TMC only
+        if np.isfinite(F2_b_vals).any():
+            good = np.isfinite(F2_b_vals)
+            h_b, = plt.plot(W_vals[good], F2_b_vals[good],
+                            label="F2 NLO + TMC only (CJ15)", color="green", ls="dashdot", lw=2)
+            handles.append(h_b)
+
+        # NLO TMC + HT
+        if np.isfinite(F2_bHT_vals).any():
+            good = np.isfinite(F2_bHT_vals)
+            h_bht, = plt.plot(W_vals[good], F2_bHT_vals[good],
+                              label="F2 NLO + TMC + HT (CJ15)", color="orange", ls="dashdot", lw=2)
+            handles.append(h_bht)
+
+        plt.xlabel("W (GeV)")
+        plt.ylabel(r"$F_2(W; Q^2)$")
+        plt.grid(True)
+        plt.legend(handles=handles, loc="upper left", fontsize="small")
+
+        q2_str = str(Q2).rstrip("0").rstrip(".")
+        out_path = f"compare_F2/compare_F2_Q2={q2_str}.pdf"
+        plt.savefig(out_path, dpi=300)
+        plt.close()
+        print("Saved →", out_path)
+
 
 
     
@@ -195,10 +235,16 @@ def compare_strfun(fixed_Q2, beam_energy,
     For any source that is missing or invalid at this Q², just skip it.
     """
 
-    W_cutoff = 2.0
+    W_cutoff = 4.0
     data = np.loadtxt(interp_file)
     W_grid = np.unique(data[:, 0])
-    W_vals = np.linspace(W_grid.min(), min(W_grid.max(), W_cutoff), num_points)
+
+    # --- NEW: cap by kinematic W_max, not ANL's grid max ---
+    Mp = 0.9385
+    w_kin_max = math.sqrt(max(Mp**2 + 2*Mp*beam_energy - fixed_Q2, 0.0))
+    W_hi = min(W_cutoff, w_kin_max - 1e-6)
+    W_lo = W_grid.min()
+    W_vals = np.linspace(W_lo, W_hi, num_points)
 
     # Containers
     anl_xs, onepi_xs = [], []
@@ -208,17 +254,21 @@ def compare_strfun(fixed_Q2, beam_energy,
 
     # ---------- LO PDF (with error) ----------
     try:
-        F1_lo, F2_lo, F1_lo_err, F2_lo_err, _ = get_pdf_interpolators_with_error(fixed_Q2, central_iset=400)
+        F1_lo, F2_lo, F1_lo_err, F2_lo_err, W_lo_range = get_pdf_interpolators_with_error(fixed_Q2, central_iset=400)
         have_lo = True
+        W_lo_min, W_lo_max = float(np.min(W_lo_range)), float(np.max(W_lo_range))
     except Exception:
         have_lo = False
+        W_lo_min = W_lo_max = None
 
     # ---------- NLO PDF (Brady tables) ----------
     try:
-        F1_brady, F1_brady_alt, F1_HT, F2_brady, F2_HT, _ = get_nlo_pdf_interpolators(fixed_Q2)
+        F1_brady, F1_brady_alt, F1_HT, F2_brady, F2_HT, W_nlo_range = get_nlo_pdf_interpolators(fixed_Q2)
         have_nlo = True
+        W_nlo_min, W_nlo_max = float(np.min(W_nlo_range)), float(np.max(W_nlo_range))
     except Exception:
         have_nlo = False
+        W_nlo_min = W_nlo_max = None
 
     # ---------- Curves on W grid ----------
     for w in W_vals:
@@ -234,8 +284,9 @@ def compare_strfun(fixed_Q2, beam_energy,
                                                         file_path=onepi_file, verbose=False))
         except Exception:
             onepi_xs.append(np.nan)
-        # LO PDF
-        if have_lo:
+
+        # LO PDF (only within its native W range)
+        if have_lo and (W_lo_min <= w <= W_lo_max):
             try:
                 pdf_val, pdf_err = compute_cross_section_pdf_with_error(
                     w, fixed_Q2, beam_energy, F1_lo, F2_lo, F1_lo_err, F2_lo_err
@@ -245,14 +296,23 @@ def compare_strfun(fixed_Q2, beam_energy,
             except Exception:
                 pdf_lo_xs.append(np.nan)
                 pdf_lo_err.append(np.nan)
-        # NLO PDF
-        if have_nlo:
+        else:
+            pdf_lo_xs.append(np.nan)
+            pdf_lo_err.append(np.nan)
+
+        # NLO PDF (only within its native W range)
+        if have_nlo and (W_nlo_min <= w <= W_nlo_max):
             try:
-                pdf_nlo_xs.append(get_nlo_pdf_cross_sections(w, fixed_Q2, beam_energy, F1_interp=F1_brady, F2_interp=F2_brady))
-                pdf_nlo_ht_xs.append(get_nlo_pdf_cross_sections(w, fixed_Q2, beam_energy, F1_interp=F1_HT, F2_interp=F2_HT))
+                pdf_nlo_xs.append(get_nlo_pdf_cross_sections(w, fixed_Q2, beam_energy,
+                                                             F1_interp=F1_brady, F2_interp=F2_brady))
+                pdf_nlo_ht_xs.append(get_nlo_pdf_cross_sections(w, fixed_Q2, beam_energy,
+                                                                F1_interp=F1_HT, F2_interp=F2_HT))
             except Exception:
                 pdf_nlo_xs.append(np.nan)
                 pdf_nlo_ht_xs.append(np.nan)
+        else:
+            pdf_nlo_xs.append(np.nan)
+            pdf_nlo_ht_xs.append(np.nan)
 
     anl_xs     = np.asarray(anl_xs)
     onepi_xs   = np.asarray(onepi_xs)
@@ -268,7 +328,7 @@ def compare_strfun(fixed_Q2, beam_energy,
         if os.path.isfile(meas_file):
             mdat = np.genfromtxt(meas_file, names=["W", "Quantity", "Uncertainty"],
                                  delimiter="\t", skip_header=1)
-            mask_meas = mdat["W"] <= W_cutoff
+            mask_meas = mdat["W"] <= W_hi
             W_meas = mdat["W"][mask_meas]
             cs_meas = mdat["Quantity"][mask_meas]
             err_meas = mdat["Uncertainty"][mask_meas]
@@ -304,7 +364,7 @@ def compare_strfun(fixed_Q2, beam_energy,
             rga_data = np.genfromtxt(rga_file,
                                      names=["W", "eps", "sigma", "error", "sys_error"],
                                      delimiter="\t", skip_header=1)
-            mask_rga = rga_data["W"] <= W_cutoff
+            mask_rga = rga_data["W"] <= W_hi
             W_rga = rga_data["W"][mask_rga]
             sigma_rga = rga_data["sigma"][mask_rga] * 1e-3
             err_rga = np.sqrt(rga_data["error"][mask_rga]**2 + rga_data["sys_error"][mask_rga]**2) * 1e-3
@@ -317,7 +377,6 @@ def compare_strfun(fixed_Q2, beam_energy,
     handles = [plt.Line2D([], [], color='white',
                label=f"Q² = {fixed_Q2:.3f} GeV², E = {beam_energy} GeV")]
 
-    # ANL and 1π (only if any finite values)
     if np.isfinite(anl_xs).any():
         h_anl, = plt.plot(W_vals, anl_xs, label="ANL-Osaka model: full cross section",
                           color="black", lw=2)
@@ -328,7 +387,6 @@ def compare_strfun(fixed_Q2, beam_energy,
                           label="ANL-Osaka model: 1π contribution", color="black", ls="--", lw=2)
         handles.append(h_1pi)
 
-    # strfun band
     if have_strfun and len(W_vals_data) > 0:
         h_strfun_line, = plt.plot(W_vals_data, cs_vals, color="grey", lw=2,
                                   label="CLAS+World data smoothed")
@@ -336,7 +394,6 @@ def compare_strfun(fixed_Q2, beam_energy,
                          color="grey", alpha=0.3)
         handles.append(h_strfun_line)
 
-    # LO PDF
     if have_lo and np.isfinite(pdf_lo_xs).any():
         good_lo = np.isfinite(pdf_lo_xs)
         h_pdf_lo, = plt.plot(W_vals[good_lo], pdf_lo_xs[good_lo],
@@ -350,16 +407,18 @@ def compare_strfun(fixed_Q2, beam_energy,
             pass
         handles.append(h_pdf_lo)
 
-    # NLO PDF
-    if have_nlo and np.isfinite(pdf_nlo_xs).any():
+    if have_nlo and (np.isfinite(pdf_nlo_xs).any() or np.isfinite(pdf_nlo_ht_xs).any()):
         good_nlo = np.isfinite(pdf_nlo_xs)
         good_nlo_ht = np.isfinite(pdf_nlo_ht_xs)
-        h_pdf_nlo, = plt.plot(W_vals[good_nlo], pdf_nlo_xs[good_nlo],label="NLO PDF (CJ15 TMC only)", color="green", ls="dashdot", lw=2)
-        h_pdf_nlo_ht, = plt.plot(W_vals[good_nlo_ht], pdf_nlo_ht_xs[good_nlo_ht], label="NLO PDF (CJ15 TMC + HT)", color="orange", ls="dashdot", lw=2)
-        handles.append(h_pdf_nlo)
-        handles.append(h_pdf_nlo_ht)
+        if good_nlo.any():
+            h_pdf_nlo, = plt.plot(W_vals[good_nlo], pdf_nlo_xs[good_nlo],
+                                  label="NLO PDF (CJ15 TMC only)", color="green", ls="dashdot", lw=2)
+            handles.append(h_pdf_nlo)
+        if good_nlo_ht.any():
+            h_pdf_nlo_ht, = plt.plot(W_vals[good_nlo_ht], pdf_nlo_ht_xs[good_nlo_ht],
+                                     label="NLO PDF (CJ15 TMC + HT)", color="orange", ls="dashdot", lw=2)
+            handles.append(h_pdf_nlo_ht)
 
-    # RGA points
     if have_rga:
         h_rga = plt.errorbar(W_rga, sigma_rga, yerr=err_rga,
                              fmt="s", color="magenta", capsize=1, ms=2,
@@ -377,6 +436,7 @@ def compare_strfun(fixed_Q2, beam_energy,
     plt.savefig(fname, dpi=300)
     plt.close()
     print("Saved →", fname)
+
 
 def compare_exp_model_pdf_bjorken_x(
     fixed_Q2,
@@ -1093,20 +1153,4 @@ def fit_inclusive_scaling_per_bin(
     plt.close()
     print("Saved →", coeffs_path)
 
-#generate_pdf_xsecs_table(2.774, 10.6)
-#generate_pdf_xsecs_table(3.244, 10.6)
-#generate_pdf_xsecs_table(3.793, 10.6)
-#generate_pdf_xsecs_table(4.435, 10.6)
-#generate_pdf_xsecs_table(5.187, 10.6)
-#generate_pdf_xsecs_table(6.065, 10.6)
-#generate_pdf_xsecs_table(7.093, 10.6)
-#generate_pdf_xsecs_table(8.294, 10.6)
-#generate_pdf_xsecs_table(9.699, 10.6)
 
-generate_pdf_xsecs_table(0.75, 1.5)
-generate_pdf_xsecs_table(1.75, 2.5)
-generate_pdf_xsecs_table(2.5, 4)
-generate_pdf_xsecs_table(0.5, 10.6)
-generate_pdf_xsecs_table(1, 10.6)
-generate_pdf_xsecs_table(2, 10.6)
-generate_pdf_xsecs_table(3, 10.6)

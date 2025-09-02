@@ -7,6 +7,7 @@ from harry_lee_functions import (
     anl_osaka_model,
     fit_inclusive_scaling,             # global fit (already added)
     fit_inclusive_scaling_per_bin,     # individual fits
+    compare_F2,                        # <-- NEW import
 )
 
 # RGA Q2 bins:  2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699
@@ -14,25 +15,27 @@ from harry_lee_functions import (
 def main():
     mode = input(
         "Choose option: compare_strfun, compare_exp_model_pdf_bjorken_x_nachtmann_xi, "
-        "generate_table, generate_xsecs, fit_inclusive_scaling, "
-        "fit_inclusive_scaling_individual: "
+        "compare_F2, generate_table, generate_xsecs, fit_inclusive_scaling, "
+        "fit_inclusive_scaling_individual : "
     ).strip().lower().strip("'\"")
 
     valid_modes = {
         "compare_strfun",
         "compare_exp_model_pdf_bjorken_x_nachtmann_xi",
+        "compare_f2",                           # <-- NEW mode
         "generate_table",
         "generate_xsecs",
-        "fit_inclusive_scaling",              # global
-        "fit_inclusive_scaling_individual",   # per-Q2
+        "fit_inclusive_scaling",                # global
+        "fit_inclusive_scaling_individual",     # per-Q2
     }
 
     if mode not in valid_modes:
         print("Supported options: compare_strfun, compare_exp_model_pdf_bjorken_x_nachtmann_xi, "
-              "generate_table, generate_xsecs, fit_inclusive_scaling, fit_inclusive_scaling_individual")
+              "compare_F2, generate_table, generate_xsecs, fit_inclusive_scaling, "
+              "fit_inclusive_scaling_individual")
         return
 
-    # For fit modes, we don't need user-provided Q² values or beam energy (data provides Q²; E_ref has a default)
+    # Fit modes: no user-provided Q²/beam energy
     if mode in {"fit_inclusive_scaling", "fit_inclusive_scaling_individual"}:
         try:
             if mode == "fit_inclusive_scaling":
@@ -45,7 +48,7 @@ def main():
             print(f"  Error: {err}")
         return
 
-    # Otherwise, same flow as before: ask for Q² values
+    # Ask for Q² values for the remaining modes
     try:
         q2_vals = [
             float(token) for token in
@@ -56,6 +59,16 @@ def main():
         print("Please enter only numbers separated by commas.")
         return
 
+    # compare_F2 does NOT need beam energy; call once and return
+    if mode == "compare_f2":
+        try:
+            print(f"\n→ Plotting F2 for Q² list: {q2_vals}")
+            compare_F2(q2_vals)
+        except Exception as err:
+            print(f"  Error: {err}")
+        return
+
+    # Modes that require beam energy
     if mode in {"compare_strfun", "compare_exp_model_pdf_bjorken_x_nachtmann_xi", "generate_xsecs"}:
         try:
             beam_energy = float(input("Enter beam energy E (GeV): "))
@@ -63,6 +76,7 @@ def main():
             print("Please enter a valid beam energy.")
             return
 
+    # Process per-Q² for the remaining modes
     for q2 in q2_vals:
         print(f"\n→ Processing Q² = {q2} GeV² …")
         try:
