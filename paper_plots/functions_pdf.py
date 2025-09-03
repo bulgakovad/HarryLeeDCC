@@ -41,7 +41,7 @@ def get_pdf_interpolators_with_error(fixed_Q2, central_iset=400):
     nb0  = df0['b'].values   
     nbb0 = df0['bb'].values  
 
-    F2_0 = ((4/9)*(nu0 + nub0 + nc0 + ncb0) + (1/9)*(nd0 + ndb0 + ns0 + nsb0 + nb0 + nbb0))
+    F2_0 = ((4/9)*(nu0 + nub0 + nc0 + ncb0) + (1/9)*(nd0 + ndb0 + ns0 + nsb0 ))
     F1_0 = F2_0 / (2 * x)
 
     W2 = Mp**2 + fixed_Q2 * (1 - x) / x
@@ -78,7 +78,7 @@ def get_pdf_interpolators_with_error(fixed_Q2, central_iset=400):
         nbi  = dfi['b'].values   
         nbbi = dfi['bb'].values  
 
-        F2_i = ((4/9)*(nui + nubi + nci + ncbi) + (1/9)*(ndi + ndbi + nsi + nsbi + nbi + nbbi))
+        F2_i = ((4/9)*(nui + nubi + nci + ncbi) + (1/9)*(ndi + ndbi + nsi + nsbi))
         F1_i = F2_i / (2 * x)
 
         F1_variations.append(F1_i[sorted])
@@ -101,12 +101,14 @@ def get_pdf_interpolators_with_error(fixed_Q2, central_iset=400):
 def get_nlo_pdf_interpolators(fixed_Q2):
     """
     Loads Brady NLO tables (F1, F2) for a given fixed Q²
-    and returns interpolators for F1_brady, F1_brady_alt,
-    F2_brady, and F2_bradyHT.
+    and returns interpolators for:
+      F1_naked (LT), F1_brady (TMC only), F1_brady_alt, F1_bradyHT,
+      F2_naked (LT), F2_brady (TMC only), F2_bradyHT (TMC+HT),
+    plus a sorted common W grid (intersection of F1 & F2 W’s).
 
     Returns:
-        tuple: (F1_brady_interp, F1_brady_alt_interp,
-                F2_brady_interp, F2_bradyHT_interp, W_sorted)
+        tuple: (F1_naked_interp, F1_brady_interp, F1_brady_alt_interp, F1_bradyHT_interp,
+                F2_naked_interp, F2_brady_interp, F2_bradyHT_interp, W_sorted)
     """
 
     folder = "../getF1F2/Output"
@@ -114,41 +116,52 @@ def get_nlo_pdf_interpolators(fixed_Q2):
     f2_file = f"{folder}/ALL_Q2_broad_W_F2_cj15.txt"
 
     # Load F1 and F2 files
-    df1 = pd.read_csv(f1_file, sep=r'\s+', header=None, names=["Q2", "W", "F1_brady", "F1_brady_alt", "F1_bradyHT"])
-    df2 = pd.read_csv(f2_file, sep=r'\s+', header=None, names=["Q2", "W", "F2_naked", "F2_moffat", "F2_brady0", "F2_brady", "F2_bradyHT"])
+    # F1 file columns: Q2, W, F1_naked, F1_brady, F1_brady_alt, F1_bradyHT
+    df1 = pd.read_csv(
+        f1_file, sep=r'\s+', header=None,
+        names=["Q2", "W", "F1_naked", "F1_brady", "F1_brady_alt", "F1_bradyHT"]
+    )
+    # F2 file columns: Q2, W, F2_naked, F2_moffat, F2_brady0, F2_brady, F2_bradyHT
+    df2 = pd.read_csv(
+        f2_file, sep=r'\s+', header=None,
+        names=["Q2", "W", "F2_naked", "F2_moffat", "F2_brady0", "F2_brady", "F2_bradyHT"]
+    )
 
     # Select rows with matching Q²
     mask1 = np.isclose(df1["Q2"].values, fixed_Q2, atol=1e-6)
     mask2 = np.isclose(df2["Q2"].values, fixed_Q2, atol=1e-6)
-
     if not (mask1.any() and mask2.any()):
         raise ValueError(f"Q²={fixed_Q2} not found in both F1 and F2 files.")
 
-    # Extract W and structure functions
+    # Extract F1 data
     W1 = df1.loc[mask1, "W"].values
-    F1_brady = df1.loc[mask1, "F1_brady"].values
+    F1_naked     = df1.loc[mask1, "F1_naked"].values
+    F1_brady     = df1.loc[mask1, "F1_brady"].values
     F1_brady_alt = df1.loc[mask1, "F1_brady_alt"].values
-    F1_bradyHT = df1.loc[mask1, "F1_bradyHT"].values
+    F1_bradyHT   = df1.loc[mask1, "F1_bradyHT"].values
 
+    # Extract F2 data
     W2 = df2.loc[mask2, "W"].values
-    F2_brady = df2.loc[mask2, "F2_brady"].values
+    F2_naked   = df2.loc[mask2, "F2_naked"].values
+    F2_brady   = df2.loc[mask2, "F2_brady"].values
     F2_bradyHT = df2.loc[mask2, "F2_bradyHT"].values
 
-    # Use intersection of W grids to stay consistent
+    # Common W grid
     W_common = np.intersect1d(W1, W2)
-
-    # Sort W grid
     W_sorted = np.sort(W_common)
 
     # Interpolators
-    F1_brady_interp     = interp1d(W1, F1_brady, kind='cubic', bounds_error=False, fill_value="extrapolate")
+    F1_naked_interp     = interp1d(W1, F1_naked,     kind='cubic', bounds_error=False, fill_value="extrapolate")
+    F1_brady_interp     = interp1d(W1, F1_brady,     kind='cubic', bounds_error=False, fill_value="extrapolate")
     F1_brady_alt_interp = interp1d(W1, F1_brady_alt, kind='cubic', bounds_error=False, fill_value="extrapolate")
-    F1_bradyHT_interp = interp1d(W1, F1_bradyHT, kind='cubic', bounds_error=False, fill_value="extrapolate")
-    
-    F2_brady_interp     = interp1d(W2, F2_brady, kind='cubic', bounds_error=False, fill_value="extrapolate")
-    F2_bradyHT_interp   = interp1d(W2, F2_bradyHT, kind='cubic', bounds_error=False, fill_value="extrapolate")
+    F1_bradyHT_interp   = interp1d(W1, F1_bradyHT,   kind='cubic', bounds_error=False, fill_value="extrapolate")
 
-    return F1_brady_interp, F1_brady_alt_interp, F1_bradyHT_interp, F2_brady_interp, F2_bradyHT_interp, W_sorted
+    F2_naked_interp     = interp1d(W2, F2_naked,     kind='cubic', bounds_error=False, fill_value="extrapolate")
+    F2_brady_interp     = interp1d(W2, F2_brady,     kind='cubic', bounds_error=False, fill_value="extrapolate")
+    F2_bradyHT_interp   = interp1d(W2, F2_bradyHT,   kind='cubic', bounds_error=False, fill_value="extrapolate")
+
+    return (F1_naked_interp, F1_brady_interp, F1_brady_alt_interp, F1_bradyHT_interp, F2_naked_interp, F2_brady_interp, F2_bradyHT_interp, W_sorted)
+
 
 
 

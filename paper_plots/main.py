@@ -5,9 +5,10 @@ from harry_lee_functions import (
     generate_table_struct_funcs,
     generate_table_xsecs,
     anl_osaka_model,
-    fit_inclusive_scaling,             # global fit (already added)
-    fit_inclusive_scaling_per_bin,     # individual fits
-    compare_F2,                        # <-- NEW import
+    fit_inclusive_scaling,             
+    fit_inclusive_scaling_per_bin,     
+    compare_F2,                        
+    compare_F1,                       
 )
 
 # RGA Q2 bins:  2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699
@@ -15,23 +16,24 @@ from harry_lee_functions import (
 def main():
     mode = input(
         "Choose option: compare_strfun, compare_exp_model_pdf_bjorken_x_nachtmann_xi, "
-        "compare_F2, generate_table, generate_xsecs, fit_inclusive_scaling, "
-        "fit_inclusive_scaling_individual : "
+        "compare_f2, compare_f1, generate_table, generate_xsecs, fit_inclusive_scaling, "
+        "fit_inclusive_scaling_individual: "
     ).strip().lower().strip("'\"")
 
     valid_modes = {
         "compare_strfun",
         "compare_exp_model_pdf_bjorken_x_nachtmann_xi",
-        "compare_f2",                           # <-- NEW mode
+        "compare_f2",                          # lowercase to match .lower()
+        "compare_f1",                          # <-- NEW mode
         "generate_table",
         "generate_xsecs",
-        "fit_inclusive_scaling",                # global
-        "fit_inclusive_scaling_individual",     # per-Q2
+        "fit_inclusive_scaling",
+        "fit_inclusive_scaling_individual",
     }
 
     if mode not in valid_modes:
         print("Supported options: compare_strfun, compare_exp_model_pdf_bjorken_x_nachtmann_xi, "
-              "compare_F2, generate_table, generate_xsecs, fit_inclusive_scaling, "
+              "compare_f2, compare_f1, generate_table, generate_xsecs, fit_inclusive_scaling, "
               "fit_inclusive_scaling_individual")
         return
 
@@ -48,7 +50,7 @@ def main():
             print(f"  Error: {err}")
         return
 
-    # Ask for Q² values for the remaining modes
+    # Ask for Q² values for remaining modes
     try:
         q2_vals = [
             float(token) for token in
@@ -59,11 +61,19 @@ def main():
         print("Please enter only numbers separated by commas.")
         return
 
-    # compare_F2 does NOT need beam energy; call once and return
+    # compare_f2 / compare_f1 do NOT need beam energy; call once and return
     if mode == "compare_f2":
         try:
             print(f"\n→ Plotting F2 for Q² list: {q2_vals}")
             compare_F2(q2_vals)
+        except Exception as err:
+            print(f"  Error: {err}")
+        return
+
+    if mode == "compare_f1":
+        try:
+            print(f"\n→ Plotting F1 for Q² list: {q2_vals}")
+            compare_F1(q2_vals)
         except Exception as err:
             print(f"  Error: {err}")
         return

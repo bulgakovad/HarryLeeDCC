@@ -109,10 +109,134 @@ def generate_table_xsecs(file_path, fixed_Q2, beam_energy, onepi_file="input_dat
     print(f"Table saved as {output_filename}")
     
 
+def compare_F1(Q2_list, num_points=400, W_cutoff=4.0):
+    """
+    For each Q² in Q2_list, plot:
+      - F1 LO (CJ15) with Hessian error band
+      - F1 NLO LT (CJ15)
+      - F1 NLO + TMC only (CJ15)
+      - F1 NLO + TMC + HT (CJ15)
+    up to W_cutoff, respecting each dataset’s native W range.
+    Saves one PDF per Q² under compare_F1/.
+    """
+
+    os.makedirs("compare_F1", exist_ok=True)
+
+    for Q2 in Q2_list:
+        have_lo = have_nlo = False
+
+        # LO: F1(W) and its error
+        try:
+            F1_lo, _, F1_lo_err, _, W_lo_rng = get_pdf_interpolators_with_error(Q2, central_iset=400)
+            W_lo_min, W_lo_max = float(np.min(W_lo_rng)), float(np.max(W_lo_rng))
+            have_lo = True
+        except Exception:
+            pass
+
+        # NLO (Brady): F1 naked, TMC only, TMC+HT
+        try:
+            F1_naked, F1_b, F1_b_alt, F1_bHT, _, _, _, W_nlo_rng = get_nlo_pdf_interpolators(Q2)
+            W_nlo_min, W_nlo_max = float(np.min(W_nlo_rng)), float(np.max(W_nlo_rng))
+            have_nlo = True
+        except Exception:
+            pass
+
+        if not (have_lo or have_nlo):
+            print(f"[WARN] Q²={Q2}: no LO/NLO F1 available — skipping.")
+            continue
+
+        # W grid up to cutoff (start from min available W among datasets)
+        wmins = []
+        if have_lo:  wmins.append(W_lo_min)
+        if have_nlo: wmins.append(W_nlo_min)
+        W_min_global = max(1.0, min(wmins)) if wmins else 1.0
+        W_vals = np.linspace(W_min_global, W_cutoff, num_points)
+
+        # Evaluate only where each dataset is defined
+        F1_lo_vals = np.full_like(W_vals, np.nan, dtype=float)
+        F1_lo_unc  = np.full_like(W_vals, np.nan, dtype=float)
+        if have_lo:
+            m = (W_vals >= W_lo_min) & (W_vals <= W_lo_max)
+            try:
+                F1_lo_vals[m] = F1_lo(W_vals[m])
+                F1_lo_unc[m]  = F1_lo_err(W_vals[m])
+            except Exception:
+                pass
+
+        F1_naked_vals = np.full_like(W_vals, np.nan, dtype=float)
+        F1_b_vals     = np.full_like(W_vals, np.nan, dtype=float)
+        F1_bHT_vals   = np.full_like(W_vals, np.nan, dtype=float)
+        if have_nlo:
+            m = (W_vals >= W_nlo_min) & (W_vals <= W_nlo_max)
+            try:
+                F1_naked_vals[m] = F1_naked(W_vals[m])   # NLO LT
+            except Exception:
+                pass
+            try:
+                F1_b_vals[m] = F1_b(W_vals[m])           # TMC only
+            except Exception:
+                pass
+            try:
+                F1_bHT_vals[m] = F1_bHT(W_vals[m])       # TMC + HT
+            except Exception:
+                pass
+
+        # Plot
+        plt.figure(figsize=(8, 6))
+        handles = [plt.Line2D([], [], color='white', label=f"Q² = {Q2:.3f} GeV²")]
+
+        # LO + band
+        if np.isfinite(F1_lo_vals).any():
+            good = np.isfinite(F1_lo_vals)
+            h_lo, = plt.plot(W_vals[good], F1_lo_vals[good],
+                             label="F1 LO LT (CJ15)", color="blue", ls="dotted", lw=1.5)
+            good_band = good & np.isfinite(F1_lo_unc)
+            if good_band.any():
+                plt.fill_between(W_vals[good_band],
+                                 F1_lo_vals[good_band] - F1_lo_unc[good_band],
+                                 F1_lo_vals[good_band] + F1_lo_unc[good_band],
+                                 color="blue", alpha=0.25, linewidth=0)
+            handles.append(h_lo)
+
+        # NLO LT (naked)
+        if np.isfinite(F1_naked_vals).any():
+            good = np.isfinite(F1_naked_vals)
+            h_naked, = plt.plot(W_vals[good], F1_naked_vals[good],
+                                label="F1 NLO LT (CJ15)", color="purple", ls="dashdot", lw=1.5)
+            handles.append(h_naked)
+
+        # NLO TMC only
+        if np.isfinite(F1_b_vals).any():
+            good = np.isfinite(F1_b_vals)
+            h_b, = plt.plot(W_vals[good], F1_b_vals[good],
+                            label="F1 NLO LT + TMC only (CJ15)", color="green", ls="dashdot", lw=1.5)
+            handles.append(h_b)
+
+        # NLO TMC + HT
+        if np.isfinite(F1_bHT_vals).any():
+            good = np.isfinite(F1_bHT_vals)
+            h_bht, = plt.plot(W_vals[good], F1_bHT_vals[good],
+                              label="F1 NLO LT + TMC + HT (CJ15)", color="orange", ls="dashdot", lw=1.5)
+            handles.append(h_bht)
+
+        plt.xlabel("W (GeV)")
+        plt.ylabel(r"$F_1(W; Q^2)$")
+        plt.grid(True)
+        plt.legend(handles=handles, loc="upper left", fontsize="small")
+
+        q2_str = str(Q2).rstrip("0").rstrip(".")
+        out_path = f"compare_F1/compare_F1_Q2={q2_str}.pdf"
+        plt.savefig(out_path, dpi=300)
+        plt.close()
+        print("Saved →", out_path)
+
+
+
 def compare_F2(Q2_list, num_points=400, W_cutoff=4.0):
     """
     For each Q² in Q2_list, plot:
       - F2 LO (CJ15) with Hessian error band
+      - F2 NLO LT (CJ15)           <-- NEW
       - F2 NLO (Brady, TMC only)
       - F2 NLO (Brady, TMC + HT)
     up to W_cutoff, respecting each dataset’s native W range.
@@ -133,8 +257,8 @@ def compare_F2(Q2_list, num_points=400, W_cutoff=4.0):
             pass
 
         try:
-            # NLO (Brady): F2 TMC only and TMC+HT
-            _, _, _, F2_b, F2_bHT, W_nlo_rng = get_nlo_pdf_interpolators(Q2)
+            # NLO (Brady): F2 LT (naked), TMC only, TMC+HT
+            _, _, _, _, F2_naked, F2_b, F2_bHT, W_nlo_rng = get_nlo_pdf_interpolators(Q2)   
             W_nlo_min, W_nlo_max = float(np.min(W_nlo_rng)), float(np.max(W_nlo_rng))
             have_nlo = True
         except Exception:
@@ -162,16 +286,21 @@ def compare_F2(Q2_list, num_points=400, W_cutoff=4.0):
             except Exception:
                 pass
 
+        F2_lt_vals  = np.full_like(W_vals, np.nan, dtype=float)  # <-- NEW (LT)
         F2_b_vals   = np.full_like(W_vals, np.nan, dtype=float)
         F2_bHT_vals = np.full_like(W_vals, np.nan, dtype=float)
         if have_nlo:
             m = (W_vals >= W_nlo_min) & (W_vals <= W_nlo_max)
             try:
-                F2_b_vals[m] = F2_b(W_vals[m])
+                F2_lt_vals[m] = F2_naked(W_vals[m])   # <-- evaluate LT
             except Exception:
                 pass
             try:
-                F2_bHT_vals[m] = F2_bHT(W_vals[m])
+                F2_b_vals[m] = F2_b(W_vals[m])        # TMC only
+            except Exception:
+                pass
+            try:
+                F2_bHT_vals[m] = F2_bHT(W_vals[m])    # TMC + HT
             except Exception:
                 pass
 
@@ -183,8 +312,7 @@ def compare_F2(Q2_list, num_points=400, W_cutoff=4.0):
         if np.isfinite(F2_lo_vals).any():
             good = np.isfinite(F2_lo_vals)
             h_lo, = plt.plot(W_vals[good], F2_lo_vals[good],
-                             label="F2 LO (CJ15)", color="blue", ls="dotted", lw=1.5)
-            # error band where both value & error are finite
+                             label="F2 LO LT (CJ15)", color="blue", ls="dotted", lw=1.5)
             good_band = good & np.isfinite(F2_lo_unc)
             if good_band.any():
                 plt.fill_between(W_vals[good_band],
@@ -193,18 +321,25 @@ def compare_F2(Q2_list, num_points=400, W_cutoff=4.0):
                                  color="blue", alpha=0.25, linewidth=0)
             handles.append(h_lo)
 
+        # NEW: NLO LT (naked)
+        if np.isfinite(F2_lt_vals).any():
+            good = np.isfinite(F2_lt_vals)
+            h_lt, = plt.plot(W_vals[good], F2_lt_vals[good],
+                             label="F2 NLO LT (CJ15)", color="purple", ls="dashdot", lw=1.5)
+            handles.append(h_lt)
+
         # NLO TMC only
         if np.isfinite(F2_b_vals).any():
             good = np.isfinite(F2_b_vals)
             h_b, = plt.plot(W_vals[good], F2_b_vals[good],
-                            label="F2 NLO + TMC only (CJ15)", color="green", ls="dashdot", lw=2)
+                            label="F2 NLO LT + TMC (OPE) only (CJ15)", color="green", ls="dashdot", lw=1.5)
             handles.append(h_b)
 
         # NLO TMC + HT
         if np.isfinite(F2_bHT_vals).any():
             good = np.isfinite(F2_bHT_vals)
             h_bht, = plt.plot(W_vals[good], F2_bHT_vals[good],
-                              label="F2 NLO + TMC + HT (CJ15)", color="orange", ls="dashdot", lw=2)
+                              label="F2 NLO LT + TMC (OPE) + HT (CJ15)", color="orange", ls="dashdot", lw=1.5)
             handles.append(h_bht)
 
         plt.xlabel("W (GeV)")
@@ -217,6 +352,7 @@ def compare_F2(Q2_list, num_points=400, W_cutoff=4.0):
         plt.savefig(out_path, dpi=300)
         plt.close()
         print("Saved →", out_path)
+
 
 
 
@@ -251,6 +387,7 @@ def compare_strfun(fixed_Q2, beam_energy,
     pdf_lo_xs, pdf_lo_err = [], []
     pdf_nlo_xs = []
     pdf_nlo_ht_xs = []  # For NLO HT cross sections
+    pdf_nlo_lt_xs = []  # <-- NEW: NLO LT (F1_naked, F2_naked)
 
     # ---------- LO PDF (with error) ----------
     try:
@@ -263,7 +400,7 @@ def compare_strfun(fixed_Q2, beam_energy,
 
     # ---------- NLO PDF (Brady tables) ----------
     try:
-        F1_brady, F1_brady_alt, F1_HT, F2_brady, F2_HT, W_nlo_range = get_nlo_pdf_interpolators(fixed_Q2)
+        F1_naked, F1_brady, F1_brady_alt, F1_HT, F2_naked, F2_brady, F2_HT, W_nlo_range = get_nlo_pdf_interpolators(fixed_Q2)
         have_nlo = True
         W_nlo_min, W_nlo_max = float(np.min(W_nlo_range)), float(np.max(W_nlo_range))
     except Exception:
@@ -300,6 +437,17 @@ def compare_strfun(fixed_Q2, beam_energy,
             pdf_lo_xs.append(np.nan)
             pdf_lo_err.append(np.nan)
 
+        # NEW: NLO LT (only within native W range)
+        if have_nlo and (W_nlo_min <= w <= W_nlo_max):
+            try:
+                pdf_nlo_lt_xs.append(get_nlo_pdf_cross_sections(
+                    w, fixed_Q2, beam_energy, F1_interp=F1_naked, F2_interp=F2_naked
+                ))
+            except Exception:
+                pdf_nlo_lt_xs.append(np.nan)
+        else:
+            pdf_nlo_lt_xs.append(np.nan)
+
         # NLO PDF (only within its native W range)
         if have_nlo and (W_nlo_min <= w <= W_nlo_max):
             try:
@@ -314,12 +462,13 @@ def compare_strfun(fixed_Q2, beam_energy,
             pdf_nlo_xs.append(np.nan)
             pdf_nlo_ht_xs.append(np.nan)
 
-    anl_xs     = np.asarray(anl_xs)
-    onepi_xs   = np.asarray(onepi_xs)
-    pdf_lo_xs  = np.asarray(pdf_lo_xs)  if have_lo  else np.array([])
-    pdf_lo_err = np.asarray(pdf_lo_err) if have_lo  else np.array([])
-    pdf_nlo_xs = np.asarray(pdf_nlo_xs) if have_nlo else np.array([])
-    pdf_nlo_ht_xs = np.asarray(pdf_nlo_ht_xs) if have_nlo else np.array([])
+    anl_xs         = np.asarray(anl_xs)
+    onepi_xs       = np.asarray(onepi_xs)
+    pdf_lo_xs      = np.asarray(pdf_lo_xs)      if have_lo  else np.array([])
+    pdf_lo_err     = np.asarray(pdf_lo_err)     if have_lo  else np.array([])
+    pdf_nlo_lt_xs  = np.asarray(pdf_nlo_lt_xs)  if have_nlo else np.array([])  # <-- NEW
+    pdf_nlo_xs     = np.asarray(pdf_nlo_xs)     if have_nlo else np.array([])
+    pdf_nlo_ht_xs  = np.asarray(pdf_nlo_ht_xs)  if have_nlo else np.array([])
 
     # ---------- strfun smoothed band (optional) ----------
     have_strfun = False
@@ -377,27 +526,25 @@ def compare_strfun(fixed_Q2, beam_energy,
     handles = [plt.Line2D([], [], color='white',
                label=f"Q² = {fixed_Q2:.3f} GeV², E = {beam_energy} GeV")]
 
-    if np.isfinite(anl_xs).any():
-        h_anl, = plt.plot(W_vals, anl_xs, label="ANL-Osaka model: full cross section",
-                          color="black", lw=2)
-        handles.append(h_anl)
-    if np.isfinite(onepi_xs).any():
-        good = np.isfinite(onepi_xs)
-        h_1pi, = plt.plot(W_vals[good], onepi_xs[good],
-                          label="ANL-Osaka model: 1π contribution", color="black", ls="--", lw=2)
-        handles.append(h_1pi)
-
-    if have_strfun and len(W_vals_data) > 0:
-        h_strfun_line, = plt.plot(W_vals_data, cs_vals, color="grey", lw=2,
-                                  label="CLAS+World data smoothed")
-        plt.fill_between(W_vals_data, cs_vals - err_vals, cs_vals + err_vals,
-                         color="grey", alpha=0.3)
-        handles.append(h_strfun_line)
+    #if np.isfinite(anl_xs).any():
+    #    h_anl, = plt.plot(W_vals, anl_xs, label="ANL-Osaka model: full cross section",
+    #                      color="black", lw=2)
+    #    handles.append(h_anl)
+    #if np.isfinite(onepi_xs).any():
+    #    good = np.isfinite(onepi_xs)
+    #    h_1pi, = plt.plot(W_vals[good], onepi_xs[good],
+    #                      label="ANL-Osaka model: 1π contribution", color="black", ls="--", lw=2)
+    #    handles.append(h_1pi)
+    #
+    #if have_strfun and len(W_vals_data) > 0:
+    #    h_strfun_line, = plt.plot(W_vals_data, cs_vals, color="grey", lw=2, label="CLAS+World data smoothed")
+    #    plt.fill_between(W_vals_data, cs_vals - err_vals, cs_vals + err_vals, color="grey", alpha=0.3)
+    #    handles.append(h_strfun_line)
 
     if have_lo and np.isfinite(pdf_lo_xs).any():
         good_lo = np.isfinite(pdf_lo_xs)
         h_pdf_lo, = plt.plot(W_vals[good_lo], pdf_lo_xs[good_lo],
-                             label="LO PDF (CJ15)", color="blue", ls="dotted", lw=1)
+                             label="LO LT from PDF (CJ15)", color="blue", ls="dotted", lw=1.5)
         try:
             plt.fill_between(W_vals[good_lo],
                              pdf_lo_xs[good_lo] - pdf_lo_err[good_lo],
@@ -407,16 +554,23 @@ def compare_strfun(fixed_Q2, beam_energy,
             pass
         handles.append(h_pdf_lo)
 
+    # NEW: plot NLO LT curve
+    if have_nlo and np.isfinite(pdf_nlo_lt_xs).any():
+        good_lt = np.isfinite(pdf_nlo_lt_xs)
+        h_pdf_nlo_lt, = plt.plot(W_vals[good_lt], pdf_nlo_lt_xs[good_lt],
+                                 label="PRELIM: NLO LT from PDF (CJ15)", color="purple", ls="dashdot", lw=1.5)
+        handles.append(h_pdf_nlo_lt)
+
     if have_nlo and (np.isfinite(pdf_nlo_xs).any() or np.isfinite(pdf_nlo_ht_xs).any()):
         good_nlo = np.isfinite(pdf_nlo_xs)
         good_nlo_ht = np.isfinite(pdf_nlo_ht_xs)
         if good_nlo.any():
             h_pdf_nlo, = plt.plot(W_vals[good_nlo], pdf_nlo_xs[good_nlo],
-                                  label="NLO PDF (CJ15 TMC only)", color="green", ls="dashdot", lw=2)
+                                  label="NLO LT + TMC(OPE) from PDF (CJ15)", color="green", ls="dashdot", lw=1.5)
             handles.append(h_pdf_nlo)
         if good_nlo_ht.any():
             h_pdf_nlo_ht, = plt.plot(W_vals[good_nlo_ht], pdf_nlo_ht_xs[good_nlo_ht],
-                                     label="NLO PDF (CJ15 TMC + HT)", color="orange", ls="dashdot", lw=2)
+                                     label="PRELIM: NLO LT + TMC(OPE) + HT from PDF (CJ15)", color="orange", ls="dashdot", lw=1.5)
             handles.append(h_pdf_nlo_ht)
 
     if have_rga:
@@ -436,6 +590,7 @@ def compare_strfun(fixed_Q2, beam_energy,
     plt.savefig(fname, dpi=300)
     plt.close()
     print("Saved →", fname)
+
 
 
 def compare_exp_model_pdf_bjorken_x(

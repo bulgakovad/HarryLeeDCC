@@ -14,11 +14,11 @@ h2p = -2.0701
 
 #	Writes F2 fixed Q2 files
 def mainF2F1():
-  f2 = open("Output/ALL_Q2_broad_W_F2_cj15.txt","w")
-  f1 = open("Output/ALL_Q2_broad_W_F1_cj15.txt","w")
+  #f2 = open("Output/to_farm_ALL_Q2_broad_W_F2_cj15.txt","w")
+  f1 = open("Output/NEW_ALL_Q2_broad_W_F1_cj15.txt","w")
   #fl = open("Output/FL_fixQ2_cj15.txt","w")
-  #for j in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
-  for j in [0.5, 0.75, 1, 1.75, 2, 2.5, 3, 2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699, 12, 14, 16, 18, 20]:
+  for j in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699, 12, 14, 16, 18, 20]:
+  #for j in [0.5, 0.75, 1, 1.75, 2, 2.5, 3, 2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699, 12, 14, 16, 18, 20]:
     Q2 = j
     for i in range(0,310):
       W = 1.07+0.01*i                         #M_prot+mpi+i*0.1
@@ -31,6 +31,7 @@ def mainF2F1():
       h2=thy.integrator(h2integrand,xN,1.0)
       g2integrand=lambda u:thy.get_F2(u,Q2,'p')/u**2*(u-xN)
       g2=thy.integrator(g2integrand,xN,1.0)
+      
       F2naked=thy.get_F2(x,Q2,'p')
       F2moffat=(1.0+rho)/(2.0*rho**2)*thy.get_F2(xN,Q2,'p')
       F2brady0=(1.0+rho)/(2.0*rho)*F2moffat
@@ -38,22 +39,25 @@ def mainF2F1():
       F2bradyht=F2brady*(1.+CHT/Q2)
 
       FLnaked=thy.get_FL(x,Q2,'p')
-      FLmoffat=(1.0+rho)/2.0*thy.get_FL(xN,Q2,'p')
+      #FLmoffat=(1.0+rho)/2.0*thy.get_FL(xN,Q2,'p')
       FLbrady0=(1.0+rho)**2/(4.0*rho)*thy.get_FL(xN,Q2,'p')
       FLbrady=FLbrady0+x*(rho**2-1.0)/rho**2*(h2+(rho**2-1.0)/(2.0*x*rho)*g2)
       FLbradyht=FLbrady*(1.+CHT/Q2)
 
       F1brady0=(1.0+rho)/(2.0*rho)*thy.get_F1(xN,Q2,'p')
       F1brady=F1brady0+(rho**2-1.0)/(4.0*rho**2)*(h2+(rho**2-1.0)/(2.0*x*rho)*g2)
-      F1brady0alt=((1.0+4.0*thy.M**2/Q2*x**2)*F2brady0-FLbrady0)/(2.0*x)
+      #F1brady0alt=((1.0+4.0*thy.M**2/Q2*x**2)*F2brady0-FLbrady0)/(2.0*x)
       F1bradyalt=((1.0+4.0*thy.M**2/Q2*x**2)*F2brady-FLbrady)/(2.0*x)
       
+      #-----------------------------------------------------NOT PART OF THE ORIGINAL CODE. I added this-----------------------------------------------------------------------------------------
       F1bradyht=((1.0+4.0*thy.M**2/Q2*x**2)*F2bradyht-FLbradyht)/(2.0*x) # Can I do this? Analogous to F1bradyalt
+      F1naked=((1.0+4.0*thy.M**2/Q2*x**2)*F2naked-FLnaked)/(2.0*x) # Can I do this? Analogous to F1bradyalt
+      #----------------------------------------------------------------------------------------------------------------------------------------------
       
       #Write out -----------------------------------------------------------------------------------------------------------------------------------
-      f2.write(str(Q2)+"\t"+str(W)+"\t"+str(F2naked)+"\t"+str(F2moffat)+"\t"+str(F2brady0)+"\t"+str(F2brady)+"\t"+str(F2bradyht)+"\n")
+      #f2.write(str(Q2)+"\t"+str(W)+"\t"+str(F2naked)+"\t"+str(F2moffat)+"\t"+str(F2brady0)+"\t"+str(F2brady)+"\t"+str(F2bradyht)+"\n")
       #fl.write(str(Q2)+"\t"+str(W)+"\t"+str(FLnaked)+"\t"+str(FLmoffat)+"\t"+str(FLbrady0)+"\t"+str(FLbrady)+"\t"+str(FLbradyht)+"\n")
-      f1.write(str(Q2)+"\t"+str(W)+"\t"+str(F1brady)+"\t"+str(F1bradyalt)+"\t"+str(F1bradyht)+"\n")
+      f1.write(str(Q2)+"\t"+str(W)+"\t"+str(F1naked)+"\t"+str(F1brady)+"\t"+str(F1bradyalt)+"\t"+str(F1bradyht)+"\n")
 
 #	Writes FL fixed Q2 files
 def mainFLQ2():
