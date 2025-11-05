@@ -4,9 +4,14 @@ from scipy.interpolate import RectBivariateSpline
 import matplotlib.pyplot as plt
 import os
 import pandas as pd
+from matplotlib.ticker import MultipleLocator, FormatStrFormatter
 
 """Functions for interpolating structure functions and computing cross sections for ANL-Osaka model.
 """
+    # --- constants (GeV units) ---
+ALPHA_EM = 1/137.035999084
+M_PROTON = 0.9382720813
+GEV2_TO_UB = 389.379  # 1 GeV^{-2} = 389.379 microbarn
 
 def interpolate_structure_functions(file_path, target_W, target_Q2):
     """
@@ -116,7 +121,7 @@ def interpolate_structure_functions_1pi(file_path, target_W, target_Q2):
     W2_interp = spl_W2(target_W, target_Q2)[0, 0]
 
     return W1_interp, W2_interp
-def compute_cross_section(W, Q2, beam_energy, file_path="input_data/wempx.dat", verbose=True):
+def compute_cross_section_model(W, Q2, beam_energy, file_path="input_data/wempx.dat", verbose=True):
     """
     Computes the differential cross section dσ/dW/dQ² for an electromagnetic (EM)
     reaction using interpolated structure functions.
@@ -190,7 +195,7 @@ def compute_cross_section(W, Q2, beam_energy, file_path="input_data/wempx.dat", 
     return dcrs
 
 
-def calculate_1pi_cross_section(W, Q2, beam_energy, file_path="input_data/wemp-pi.dat", verbose=True):
+def compute_1pi_cross_section_model(W, Q2, beam_energy, file_path="input_data/wemp-pi.dat", verbose=True):
     """
     Computes the differential cross section dσ/dW/dQ² for the single-pion production
     channel (1π) in electromagnetic scattering N(e,e'π)X using interpolated structure functions.
@@ -251,7 +256,7 @@ def calculate_1pi_cross_section(W, Q2, beam_energy, file_path="input_data/wemp-p
 
     return dcrs
 
-def compute_2pi_cross_section(
+def compute_2pi_cross_section_model(
     W,
     Q2,
     beam_energy,
@@ -290,13 +295,13 @@ def compute_2pi_cross_section(
         in the same units as compute_cross_section (10^(-30) cm²/GeV³).
     """
     # Full ANL-Osaka (all channels included by the table)
-    dcs_full = compute_cross_section(
+    dcs_full = compute_cross_section_model(
         W=W, Q2=Q2, beam_energy=beam_energy,
         file_path=full_file_path, verbose=False
     )
 
     # Single-pion exclusive contribution
-    dcs_1pi = calculate_1pi_cross_section(
+    dcs_1pi = compute_1pi_cross_section_model(
         W=W, Q2=Q2, beam_energy=beam_energy,
         file_path=onepi_file_path, verbose=False
     )
@@ -313,3 +318,270 @@ def compute_2pi_cross_section(
               + ("   [clamped ≥ 0]" if clamp_nonneg else ""))
 
     return dcs_diff
+
+
+
+
+
+def make_sigma_LT_table(Q2):
+    """
+    Compute σ_L(W) and σ_T(W) at fixed Q² using your existing
+    interpolate_structure_functions(file_path, W, Q2) -> (W1, W2),
+    then write a table and save a plot.
+
+    Output:
+      - sigma_LT_tables/sigma_LT_Q2={Q2:.3f}.dat    (columns: W, sigma_L, sigma_T)
+      - sigma_LT_tables/sigma_LT_Q2={Q2:.3f}.png    (plot of sigma_L and sigma_T vs W)
+    """
+    assert Q2 > 0.0, "Q2 must be > 0"
+
+
+
+    # Hand flux helpers
+    def _nu(W):  # ν = (W^2 + Q^2 - M^2) / (2M)
+        return (W**2 + Q2 - M_PROTON**2) / (2.0 * M_PROTON)
+
+    def _K(W):   # Hand's equivalent photon energy: K = (W^2 - M^2) / (2M)
+        return (W**2 - M_PROTON**2) / (2.0 * M_PROTON)
+
+    # Read native W grid from your ANL-Osaka table
+    file_path = "input_data/wempx.dat"
+    data = np.loadtxt(file_path)
+    W = np.unique(data[:, 0]).astype(float)
+
+    # Interpolate W1, W2 on that grid
+    W1 = np.empty_like(W)
+    W2 = np.empty_like(W)
+    for i, w in enumerate(W):
+        W1[i], W2[i] = interpolate_structure_functions(file_path, w, Q2)
+
+    # Convert to sigma_T and sigma_L
+    K = _K(W)
+    nu = _nu(W)
+
+    # Avoid division by zero or negative K (physically W should be > M)
+    mask = K > 0.0
+    W_use  = W[mask]
+    W1_use = W1[mask]
+    W2_use = W2[mask]
+    K_use  = K[mask]
+    nu_use = nu[mask]
+
+    pref = (4.0 * np.pi**2 * ALPHA_EM) / K_use
+    sigma_T = pref * W1_use
+    sigma_L = pref * ((1.0 + (nu_use**2)/Q2) * W2_use - W1_use)
+
+    # Write table
+    os.makedirs("sigma_LT_tables", exist_ok=True)
+    dat_path = f"sigma_LT_tables/sigma_LT_Q2={Q2:.3f}.dat"
+    with open(dat_path, "w") as f:
+        f.write("#W\tsigma_L\tsigma_T\n")
+        for w, sL, sT in zip(W_use, sigma_L, sigma_T):
+            f.write(f"{w:.6f}\t{sL:.8e}\t{sT:.8e}\n")
+
+    # Make and save plot (both curves on one canvas)
+    plt.figure()
+    plt.plot(W_use, sigma_L, label=r"$\sigma_L$")
+    plt.plot(W_use, sigma_T, label=r"$\sigma_T$")
+    plt.xlabel("W [GeV]")
+    plt.ylabel(r"Cross section $\sigma$ (model units)")
+    plt.title(fr"$\sigma_L,\ \sigma_T$ vs $W$ at $Q^2={Q2:.3f}\ \mathrm{{GeV}}^2$")
+    plt.legend(loc="upper right")
+    plt.grid(True)
+    png_path = f"sigma_LT_tables/sigma_LT_Q2={Q2:.3f}.png"
+    plt.tight_layout()
+    plt.savefig(png_path, dpi=200)
+    plt.close()
+
+
+
+def make_sigma_LT_1pi_table(Q2):
+    """
+    Compute σ_L^{1π}(W) and σ_T^{1π}(W) at fixed Q² using your existing
+    interpolate_structure_functions_1pi(file_path, W, Q2) -> (W1, W2),
+    then write a table and save a plot.
+
+    Output:
+      - sigma_LT_tables/sigma_LT_Q2={Q2:.3f}_1pi.dat  (columns: W, sigma_L, sigma_T)
+      - sigma_LT_tables/sigma_LT_Q2={Q2:.3f}_1pi.png  (plot of sigma_L and sigma_T vs W)
+    """
+    assert Q2 > 0.0, "Q2 must be > 0"
+
+
+    # Hand flux helpers
+    def _nu(W):  # ν = (W^2 + Q^2 - M^2) / (2M)
+        return (W**2 + Q2 - M_PROTON**2) / (2.0 * M_PROTON)
+
+    def _K(W):   # Hand's equivalent photon energy: K = (W^2 - M^2) / (2M)
+        return (W**2 - M_PROTON**2) / (2.0 * M_PROTON)
+
+    # Read native W grid from the 1π ANL-Osaka table
+    file_path = "input_data/wemp-pi.dat"
+    data = np.loadtxt(file_path)
+    W = np.unique(data[:, 0]).astype(float)
+
+    # Interpolate W1, W2 (1π) on that grid
+    W1 = np.empty_like(W)
+    W2 = np.empty_like(W)
+    for i, w in enumerate(W):
+        W1[i], W2[i] = interpolate_structure_functions_1pi(file_path, w, Q2)
+
+    # Convert to sigma_T and sigma_L
+    K = _K(W)
+    nu = _nu(W)
+
+    # Avoid division by zero or negative K (physically W should be > M)
+    mask = K > 0.0
+    W_use  = W[mask]
+    W1_use = W1[mask]
+    W2_use = W2[mask]
+    K_use  = K[mask]
+    nu_use = nu[mask]
+
+    pref = (4.0 * np.pi**2 * ALPHA_EM) / K_use
+    sigma_T = pref * W1_use
+    sigma_L = pref * ((1.0 + (nu_use**2)/Q2) * W2_use - W1_use)
+
+    # Write table
+    os.makedirs("sigma_LT_tables", exist_ok=True)
+    dat_path = f"sigma_LT_tables/sigma_LT_Q2={Q2:.3f}_1pi.dat"
+    with open(dat_path, "w") as f:
+        f.write("#W\tsigma_L\tsigma_T\n")
+        for w, sL, sT in zip(W_use, sigma_L, sigma_T):
+            f.write(f"{w:.6f}\t{sL:.8e}\t{sT:.8e}\n")
+
+    # Make and save plot (both curves on one canvas)
+    plt.figure()
+    plt.plot(W_use, sigma_L, label=r"$\sigma_L^{1\pi}$")
+    plt.plot(W_use, sigma_T, label=r"$\sigma_T^{1\pi}$")
+    plt.xlabel("W [GeV]")
+    plt.ylabel(r"Cross section $\sigma$ (model units)")
+    plt.title(r"$\sigma_L^{1 \pi},\ \sigma_T^{1 \pi}$ vs $W$ at $Q^2={Q2:.3f}\ \mathrm{{GeV}}^2$")
+    plt.legend(loc="upper right")
+    plt.grid(True)
+    png_path = f"sigma_LT_tables/sigma_LT_Q2={Q2:.3f}_1pi.png"
+    plt.tight_layout()
+    plt.savefig(png_path, dpi=200)
+    plt.close()
+
+    return dat_path, png_path
+
+
+def make_dsigma_dWdQ2_full_vs_1pi_plot(Q2, E_beam):
+    """
+    Compute and plot on ONE canvas:
+      - inclusive  d^2σ/dW dQ^2 (from interpolate_structure_functions on wempx.dat)
+      - 1π         d^2σ/dW dQ^2 (from interpolate_structure_functions_1pi on wemp-pi.dat)
+    using Hand flux and the W–Q² Jacobian. Y-axis is in microbarn/GeV^3.
+
+    Output:
+      sigma_LT_tables/dsigma_dWdQ2_Q2={Q2:.3f}_E={E_beam:.3f}_full_vs_1pi.png
+    """
+    assert Q2 > 0.0 and E_beam > 0.0, "Q2 and E_beam must be > 0"
+
+    # --- constants (GeV units) ---
+    ALPHA_EM = 1/137.035999084
+    M_PROTON = 0.9382720813
+    GEV2_TO_UB = 389.379  # 1 GeV^{-2} = 389.379 microbarn
+
+    # Helpers
+    def _nu(W):  # ν = (W^2 + Q^2 - M^2) / (2M)
+        return (W**2 + Q2 - M_PROTON**2) / (2.0 * M_PROTON)
+
+    def _K(W):   # Hand: K = (W^2 - M^2) / (2M)
+        return (W**2 - M_PROTON**2) / (2.0 * M_PROTON)
+
+    def _sigma_from_W1W2(W, W1, W2):
+        """Return (sigma_T, sigma_L) in natural units GeV^{-2}."""
+        K = _K(W); nu = _nu(W)
+        pref = (4.0 * np.pi**2 * ALPHA_EM) / K
+        sigma_T = pref * W1
+        sigma_L = pref * ((1.0 + (nu**2)/Q2) * W2 - W1)
+        return sigma_T, sigma_L, K, nu
+
+    def _build_curve(file_path, interp_fn):
+        """
+        Build (W, dsigma_dWdQ2_ub) for either inclusive or 1π:
+        - read native W grid
+        - interpolate W1,W2
+        - compute sigma_T, sigma_L
+        - compute ε, Γ_Hand, Jacobian
+        - return μb/GeV^3
+        """
+        data = np.loadtxt(file_path)
+        W_all = np.unique(data[:, 0]).astype(float)
+
+        # Interpolate W1, W2 on native W grid
+        W1 = np.empty_like(W_all)
+        W2 = np.empty_like(W_all)
+        for i, w in enumerate(W_all):
+            W1[i], W2[i] = interp_fn(file_path, w, Q2)
+
+        # σ_T, σ_L and kinematics
+        sigma_T, sigma_L, K, nu = _sigma_from_W1W2(W_all, W1, W2)
+        Eprime = E_beam - nu
+
+        # Physical mask: K>0, E'>0, 0<sin^2(θ/2)<1
+        mask = (K > 0.0) & (Eprime > 0.0)
+        sin2 = np.empty_like(W_all)
+        sin2[mask] = Q2 / (4.0 * E_beam * Eprime[mask])
+        mask &= (sin2 > 0.0) & (sin2 < 1.0)
+        if not np.any(mask):
+            return np.array([]), np.array([])
+
+        W = W_all[mask]
+        sigma_T = sigma_T[mask]
+        sigma_L = sigma_L[mask]
+        K = K[mask]
+        Eprime = Eprime[mask]
+        sin2 = sin2[mask]
+        nu_masked = nu[mask]
+
+        # ε and Hand flux
+        tan2 = sin2 / (1.0 - sin2)
+        eps = 1.0 / (1.0 + 2.0 * (1.0 + (nu_masked**2)/Q2) * tan2)
+        Gamma = (ALPHA_EM / (2.0 * np.pi**2)) * (Eprime / E_beam) * (K / Q2) * (1.0 / (1.0 - eps))
+
+        # Jacobian dΩ dE' → dW dQ^2
+        J = (np.pi * W) / (M_PROTON * E_beam * Eprime)
+
+        # d^2σ/dW dQ^2 in μb/GeV^3
+        dsigma = Gamma * (sigma_T + eps * sigma_L) * J
+        dsigma_ub = dsigma * GEV2_TO_UB
+        return W, dsigma_ub
+
+    # Inclusive curve (wempx.dat)
+    W_full, dsig_full = _build_curve("input_data/wempx.dat", interpolate_structure_functions)
+    # 1π curve (wemp-pi.dat)
+    W_1pi, dsig_1pi = _build_curve("input_data/wemp-pi.dat", interpolate_structure_functions_1pi)
+
+    # Plot both on one canvas
+    os.makedirs("sigma_LT_tables", exist_ok=True)
+    png_path = f"sigma_LT_tables/dsigma_dWdQ2_Q2={Q2:.3f}_E={E_beam:.3f}_full_vs_1pi.png"
+
+    plt.figure()
+    if W_full.size:
+        plt.plot(W_full, dsig_full, label=r"Inclusive $d^2\sigma/dW\,dQ^2$", color="black")
+    if W_1pi.size:
+        plt.plot(W_1pi, dsig_1pi, label=r"$1\pi$ $d^2\sigma/dW\,dQ^2$",color="black", linestyle="dashed")
+
+    plt.xlabel("W [GeV]")
+    plt.ylabel(r"$d^2\sigma/dW\,dQ^2$  [$\mu$b/GeV$^3$]")
+    plt.title(fr"$Q^2={Q2:.3f}$ GeV$^2$, $E={E_beam:.3f}$ GeV (full vs 1$\pi$)")
+    plt.grid(True); plt.legend(loc="best")
+
+    # Optional visual settings matching your earlier requests:
+    plt.xlim(1.0, 2.0)
+    plt.ylim(0, 0.0035)
+    #ax = plt.gca()
+    #ax.yaxis.set_major_locator(MultipleLocator(1e-4))
+    #ax.yaxis.set_major_formatter(FormatStrFormatter('%.4f'))
+
+    plt.tight_layout()
+    plt.savefig(png_path, dpi=200)
+    plt.close()
+
+    return png_path
+
+
+make_dsigma_dWdQ2_full_vs_1pi_plot(2.774, 10.6)

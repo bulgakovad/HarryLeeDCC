@@ -5,23 +5,25 @@ from scipy.integrate import quad,fixed_quad,dblquad
 from theory import IDIS
 
 #thy=IDIS('JAM19PDF_proton_nlo')
-thy=IDIS('CJ15nlo')
+pdf_set="CT18NLO"
+thy=IDIS(pdf_set)
 M=thy.M
 mpi=thy.mpi
 h0p = -3.2874
 h1p = 1.9274
 h2p = -2.0701
+def x_of_W(W,Q2): return Q2 / (W*W - M*M + Q2)
 
 #	Writes F2 fixed Q2 files
 def mainF2F1():
-  #f2 = open("Output/to_farm_ALL_Q2_broad_W_F2_cj15.txt","w")
-  f1 = open("Output/NEW_ALL_Q2_broad_W_F1_cj15.txt","w")
-  #fl = open("Output/FL_fixQ2_cj15.txt","w")
-  for j in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699, 12, 14, 16, 18, 20]:
-  #for j in [0.5, 0.75, 1, 1.75, 2, 2.5, 3, 2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699, 12, 14, 16, 18, 20]:
-    Q2 = j
-    for i in range(0,310):
-      W = 1.07+0.01*i                         #M_prot+mpi+i*0.1
+  out_dir = f"Output/Output_{pdf_set}"
+  os.makedirs(out_dir, exist_ok=True)
+  f2 = open(f"{out_dir}/F2.txt","w")
+  f1 = open(f"{out_dir}/F1.txt","w")
+  fl = open(f"{out_dir}/FL.txt","w")
+  for Q2 in [2.774,3.244,3.793,4.435,5.187,6.065,7.093,8.294,9.699]:
+    for i in range(0,1500):
+      W = 1.07+0.02*i                         #M_prot+mpi+i*0.01
       nu = (W**2 - M**2 + Q2)/(2*M)
       x = Q2/(2.0*M*nu)
       rho = (1.0 + 4.0*x**2*M**2/Q2)**0.5
@@ -39,24 +41,27 @@ def mainF2F1():
       F2bradyht=F2brady*(1.+CHT/Q2)
 
       FLnaked=thy.get_FL(x,Q2,'p')
-      #FLmoffat=(1.0+rho)/2.0*thy.get_FL(xN,Q2,'p')
+      FLmoffat=(1.0+rho)/2.0*thy.get_FL(xN,Q2,'p')
       FLbrady0=(1.0+rho)**2/(4.0*rho)*thy.get_FL(xN,Q2,'p')
       FLbrady=FLbrady0+x*(rho**2-1.0)/rho**2*(h2+(rho**2-1.0)/(2.0*x*rho)*g2)
       FLbradyht=FLbrady*(1.+CHT/Q2)
 
       F1brady0=(1.0+rho)/(2.0*rho)*thy.get_F1(xN,Q2,'p')
       F1brady=F1brady0+(rho**2-1.0)/(4.0*rho**2)*(h2+(rho**2-1.0)/(2.0*x*rho)*g2)
-      #F1brady0alt=((1.0+4.0*thy.M**2/Q2*x**2)*F2brady0-FLbrady0)/(2.0*x)
+      F1brady0alt=((1.0+4.0*thy.M**2/Q2*x**2)*F2brady0-FLbrady0)/(2.0*x)
       F1bradyalt=((1.0+4.0*thy.M**2/Q2*x**2)*F2brady-FLbrady)/(2.0*x)
       
       #-----------------------------------------------------NOT PART OF THE ORIGINAL CODE. I added this-----------------------------------------------------------------------------------------
       F1bradyht=((1.0+4.0*thy.M**2/Q2*x**2)*F2bradyht-FLbradyht)/(2.0*x) # Can I do this? Analogous to F1bradyalt
       F1naked=((1.0+4.0*thy.M**2/Q2*x**2)*F2naked-FLnaked)/(2.0*x) # Can I do this? Analogous to F1bradyalt
+      
+      F2ht_only=F2naked*(1.+CHT/Q2) # Just to see the effect of CHT on F2naked. Dr. Joo asked me to do this
+      F1ht_only=F1naked*(1.+CHT/Q2) # Just to see the effect of CHT on F1naked. Dr. Joo asked me to do this
       #----------------------------------------------------------------------------------------------------------------------------------------------
       
       #Write out -----------------------------------------------------------------------------------------------------------------------------------
-      #f2.write(str(Q2)+"\t"+str(W)+"\t"+str(F2naked)+"\t"+str(F2moffat)+"\t"+str(F2brady0)+"\t"+str(F2brady)+"\t"+str(F2bradyht)+"\n")
-      #fl.write(str(Q2)+"\t"+str(W)+"\t"+str(FLnaked)+"\t"+str(FLmoffat)+"\t"+str(FLbrady0)+"\t"+str(FLbrady)+"\t"+str(FLbradyht)+"\n")
+      f2.write(str(Q2)+"\t"+str(W)+"\t"+str(F2naked)+"\t"+str(F2moffat)+"\t"+str(F2brady0)+"\t"+str(F2brady)+"\t"+str(F2bradyht)+"\n")
+      fl.write(str(Q2)+"\t"+str(W)+"\t"+str(FLnaked)+"\t"+str(FLmoffat)+"\t"+str(FLbrady0)+"\t"+str(FLbrady)+"\t"+str(FLbradyht)+"\n")
       f1.write(str(Q2)+"\t"+str(W)+"\t"+str(F1naked)+"\t"+str(F1brady)+"\t"+str(F1bradyalt)+"\t"+str(F1bradyht)+"\n")
 
 #	Writes FL fixed Q2 files
@@ -102,24 +107,34 @@ def mainFLW():
       FLbrady=FLbrady0+x*(rho**2-1.0)/rho**2*(h2+(rho**2-1.0)/(2.0*x*rho)*g2)
       flw.write(str(Q2)+"\t"+str(W)+"\t"+str(FLbrady)+"\n")
 
-def mainF2trunc():
-  f2 = open("Output/F2_trunc_cj15.txt","w")
-  f1 = open("Output/F1_trunc_cj15.txt","w")
+def mainF2trunc(res_region):
+  f2 = open(f"Output/F2_trunc_cj15_{res_region}.txt","w")
+  f1 = open(f"Output/F1_trunc_cj15_{res_region}.txt","w")
   #fl = open("Output/FL_trunc_cj15.txt","w")
   for q in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
     Q2 = q
-    W0 = np.sqrt(1.125) # W = 1.061 GeV
+    W0 = np.sqrt(1.125) # W = 1.061 GeV WHY?? It's not pion threshold, must be 1.073
     Wmax = np.sqrt(1.9) # W = 1.378 GeV
     Wmax2 = np.sqrt(2.5) # W = 1.581 GeV
-    Wmax3 = np.sqrt(3.1) # W = 1.761 GeV
+    Wmax3 = np.sqrt(3.1) # W = 1.761 GeV  WHY 1.761 GeV but in paper 1.75 ??
     nu0 = (W0**2 - M**2 + Q2)/(2*M)
     numax = (Wmax**2 - M**2 + Q2)/(2*M)
     numax2 = (Wmax2**2 - M**2 + Q2)/(2*M)
     numax3 = (Wmax3**2 - M**2 + Q2)/(2*M)
-    xmax = 1.
-    x0 = Q2/(2.0*M*numax)
-    x02 = Q2/(2.0*M*numax2)
-    x03 = Q2/(2.0*M*numax3)
+    #xmax = 1. # W = M = 0.938 GeV
+    x0 = Q2/(2.0*M*numax) # W = 1.378 GeV
+    x02 = Q2/(2.0*M*numax2) # W = 1.581 GeV
+    #x03 = Q2/(2.0*M*numax3) # W = 1.761 GeV
+    
+    if res_region == "full":
+      xmax = x_of_W(1.15, Q2)  # now corresponds to data range
+      x03 = x_of_W(2.5, Q2)   # now corresponds to data range
+      if Q2 == 9.699:
+        x03 = x_of_W(2.25, Q2)   # now corresponds to data range
+    elif res_region == "part":
+      xmax = x_of_W(1.15, Q2)  # now corresponds to data range
+      x03 = x_of_W(1.75, Q2)   
+    
     rho = lambda x: (1.0 + 4.0*x**2*M**2/Q2)**0.5
     F2nakedint=lambda x:thy.get_F2(x,Q2,'p')
     xN = lambda x: 2.0*x/(1.+rho(x))
@@ -134,6 +149,11 @@ def mainF2trunc():
     F2uxint=lambda x,u:3.0*x*(rho(x)**2-1.0)/(2.0*rho(x)**4)*(rho(x)**2-1.0)/(2.0*x*rho(x))*g2integrand(x,u)
     F2bradyuxht=lambda x: fixed_quad(lambda u: np.vectorize(F2uxint)(x,u),xN(x),1.0,n=10)[0]*(1.+CHT(x)/Q2)
     F2bradyux=lambda x: fixed_quad(lambda u: np.vectorize(F2uxint)(x,u),xN(x),1.0,n=10)[0]
+    #------------------------HT Only, without TMC------------------------#
+        # HT-only (no TMC) integrand and "All" truncated moment
+    F2ht_onlyint = lambda x: thy.get_F2(x, Q2, 'p') * (1.0 + CHT(x)/Q2)
+    F2ht_onlyall = thy.integrator(F2ht_onlyint, x03, xmax, n=10)
+    #---------------------------------------------------------------------#
     F2naked=thy.integrator(F2nakedint,x0,xmax,n=10)
     F2naked2=thy.integrator(F2nakedint,x02,x0,n=10)
     F2naked3=thy.integrator(F2nakedint,x03,x02,n=10)
@@ -169,7 +189,7 @@ def mainF2trunc():
     FLbrady2=thy.integrator(FLbrady0int,x02,x0,n=10)+thy.integrator(FLxint,x02,x0,n=10)+fixed_quad(np.vectorize(FLbradyux),x02,x0,n=10)[0]
     FLbrady3=thy.integrator(FLbrady0int,x03,x02,n=10)+thy.integrator(FLxint,x03,x02,n=10)+fixed_quad(np.vectorize(FLbradyux),x03,x02,n=10)[0]
     FLbradyall=thy.integrator(FLbrady0int,x03,xmax,n=10)+thy.integrator(FLxint,x03,xmax,n=10)+fixed_quad(np.vectorize(FLbradyux),x03,xmax,n=10)[0]
-    f2.write(str(Q2)+"\t"+str(F2bradyht)+"\t"+str(F2bradyht2)+"\t"+str(F2bradyht3)+"\t"+str(F2bradyhtall)+"\t"+str(F2brady)+"\t"+str(F2brady2)+"\t"+str(F2brady3)+"\t"+str(F2bradyall)+"\t"+str(F2naked)+"\t"+str(F2naked2)+"\t"+str(F2naked3)+"\t"+str(F2nakedall)+"\n")
+    f2.write(str(Q2)+"\t"+str(F2bradyht)+"\t"+str(F2bradyht2)+"\t"+str(F2bradyht3)+"\t"+str(F2bradyhtall)+"\t"+str(F2brady)+"\t"+str(F2brady2)+"\t"+str(F2brady3)+"\t"+str(F2ht_onlyall)+"\t"+str(F2naked)+"\t"+str(F2naked2)+"\t"+str(F2naked3)+"\t"+str(F2nakedall)+"\n")
     f1.write(str(Q2)+"\t"+str(F1brady)+"\t"+str(F1brady2)+"\t"+str(F1brady3)+"\t"+str(F1bradyall)+"\n")
     #fl.write(str(Q2)+"\t"+str(FLbradyht)+"\t"+str(FLbradyht2)+"\t"+str(FLbradyht3)+"\t"+str(FLbradyhtall)+"\t"+str(FLbrady)+"\t"+str(FLbrady2)+"\t"+str(FLbrady3)+"\t"+str(FLbradyall)+"\n")
 
@@ -231,7 +251,8 @@ def mainTMC():
 
 if __name__== "__main__":
      #mainTMC()
-     #mainF2trunc()
+     #mainF2trunc("full")
+     #mainF2trunc("part")
      mainF2F1()
     #mainFLQ2()
 #    mainFLW()

@@ -4,7 +4,7 @@
       real*8 x, Q2, Q, row(13)
       dimension pdf(-5:5)
       character*80 outfile, outdir, mkdir_cmd
-      character*20 iset_str, Q2_str
+      character*32 iset_str, Q2_str
       integer nQ, last
       nQ = 1
 
@@ -18,7 +18,7 @@
       read*, Q2
 
 C Format Q2 string and clean it
-      write(Q2_str, '(F6.3)') Q2
+      write(Q2_str, '(F12.6)') Q2
       Q2_str = adjustl(Q2_str)
 
 C Strip trailing zeros
@@ -50,8 +50,8 @@ C Write header
 
       do 10 j = 1, nQ
          Q = sqrt(Q2)
-         do 20 l = 1, 99
-            x = l * 0.01
+         do 20 l = 1, 999
+            x = l * 0.001
             do 30 k = -5, 5
                pdf(k) = x * CJpdf(k, x, Q)
 30          continue

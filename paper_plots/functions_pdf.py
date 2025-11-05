@@ -8,219 +8,175 @@ import pandas as pd
 Helper functions for PDF-based structure function calculations
 """
 
-def get_pdf_interpolators_with_error(fixed_Q2, central_iset=400):
+
+def get_lo_pdf_interpolators(fixed_Q2, pdf_set, q2_tol=1e-4):
     """
-    Loads central and error PDF tables for a given fixed Q² and ISET value = 400
-    computes F1(W) and F2(W) interpolators, and error bands using Hessian prescription.
+    Load LO PDF structure function data from getF1F2 output files,
+    filter by fixed Q², and create interpolators over W.
 
-    Returns:
-        tuple: (F1_W_interp, F2_W_interp, F1_err_func, F2_err_func, W_range)
+    Args:
+        fixed_Q2 (float): Q² value in GeV²
+        pdf_set (str): PDF set name (e.g., "CT18NLO")
+        q2_tol (float): tolerance for matching Q² values
     """
-
-    Mp = 0.9385
-    q2_str = str(fixed_Q2).rstrip("0").rstrip(".")
-    folder = f"../get_PDF/output/Q2={q2_str}"
-
-    # Load central PDF
-    def load_table(iset):
-        filename = f"{folder}/tst_CJpdf_ISET={iset}_Q2={q2_str}.dat"
-        if not os.path.isfile(filename):
-            raise FileNotFoundError(f"PDF file not found: {filename}")
-        return pd.read_csv(filename, sep=r'\s+')
-
-    df0 = load_table(central_iset)
-    x = df0['x'].values
-    nu0 = df0['u'].values
-    nub0 = df0['ub'].values
-    nd0 = df0['d'].values
-    ndb0 = df0['db'].values
-    ns0  = df0['s'].values   
-    nsb0 = df0['sb'].values  
-    nc0  = df0['c'].values   
-    ncb0 = df0['cb'].values  
-    nb0  = df0['b'].values   
-    nbb0 = df0['bb'].values  
-
-    F2_0 = ((4/9)*(nu0 + nub0 + nc0 + ncb0) + (1/9)*(nd0 + ndb0 + ns0 + nsb0 ))
-    F1_0 = F2_0 / (2 * x)
-
-    W2 = Mp**2 + fixed_Q2 * (1 - x) / x
-    W = np.sqrt(W2)
-
-    sorted = np.argsort(W)
-    W_sorted = W[sorted]
-    F1_sorted = F1_0[sorted]
-    F2_sorted = F2_0[sorted]
-
-    F1_W_interp = interp1d(W_sorted, F1_sorted, kind='cubic', bounds_error=False, fill_value="extrapolate")
-    F2_W_interp = interp1d(W_sorted, F2_sorted, kind='cubic', bounds_error=False, fill_value="extrapolate")
-
-    # Load eigenvector variations
-    iset_range = range(401, 449)
+    folder  = f"../getF1F2/Output/Output_{pdf_set}_LO"
+    f1_file = f"{folder}/F1_LO.txt"
+    f2_file = f"{folder}/F2_LO.txt"
     
+    df1 = pd.read_csv(f1_file, sep=r"\s+", header=None,
+                      names=["Q2","W","F1_LO"])
+    df2 = pd.read_csv(f2_file, sep=r"\s+", header=None,
+                      names=["Q2","W","F2_LO"])
+    
+    # Helper: safe interpolator with sorting + cubic→linear fallback
+    def _make_interp(W, Y, kind="cubic"):
+        W = np.asarray(W, dtype=float)
+        Y = np.asarray(Y, dtype=float)
+        # sort & unique by W (keep first occurrence)
+        order = np.argsort(W)
+        Ws, Ys = W[order], Y[order]
+        # drop duplicate W
+        if np.any(np.diff(Ws) == 0):
+            uniq_idx = np.concatenate(([0], np.where(np.diff(Ws) != 0)[0] + 1))
+            Ws, Ys = Ws[uniq_idx], Ys[uniq_idx]
+        # fallback if too short for cubic
+        use_kind = kind if Ws.size >= 4 else "linear"
+        return interp1d(Ws, Ys, kind=use_kind, bounds_error=False, fill_value="extrapolate")
 
-    F1_variations = []
-    F2_variations = []
-
-    for iset in iset_range:
-        try:
-            dfi = load_table(iset)
-        except FileNotFoundError:
-            continue
-        nui  = dfi['u'].values
-        nubi = dfi['ub'].values
-        ndi  = dfi['d'].values
-        ndbi = dfi['db'].values
-        nsi  = dfi['s'].values   
-        nsbi = dfi['sb'].values  
-        nci  = dfi['c'].values   
-        ncbi = dfi['cb'].values  
-        nbi  = dfi['b'].values   
-        nbbi = dfi['bb'].values  
-
-        F2_i = ((4/9)*(nui + nubi + nci + ncbi) + (1/9)*(ndi + ndbi + nsi + nsbi))
-        F1_i = F2_i / (2 * x)
-
-        F1_variations.append(F1_i[sorted])
-        F2_variations.append(F2_i[sorted])
-
-
-    F1_variations = np.array(F1_variations)
-    F2_variations = np.array(F2_variations)
-
-    # Compute symmetric error bands (standard Hessian method)
-    F1_err = np.sqrt(np.sum((F1_variations - F1_sorted) ** 2, axis=0))
-    F2_err = np.sqrt(np.sum((F2_variations - F2_sorted) ** 2, axis=0))
-
-    # Return error functions (interpolators)
-    F1_err_func = interp1d(W_sorted, F1_err, kind='linear', bounds_error=False, fill_value="extrapolate")
-    F2_err_func = interp1d(W_sorted, F2_err, kind='linear', bounds_error=False, fill_value="extrapolate")
-
-    return F1_W_interp, F2_W_interp, F1_err_func, F2_err_func, W_sorted
-
-def get_nlo_pdf_interpolators(fixed_Q2):
-    """
-    Loads Brady NLO tables (F1, F2) for a given fixed Q²
-    and returns interpolators for:
-      F1_naked (LT), F1_brady (TMC only), F1_brady_alt, F1_bradyHT,
-      F2_naked (LT), F2_brady (TMC only), F2_bradyHT (TMC+HT),
-    plus a sorted common W grid (intersection of F1 & F2 W’s).
-
-    Returns:
-        tuple: (F1_naked_interp, F1_brady_interp, F1_brady_alt_interp, F1_bradyHT_interp,
-                F2_naked_interp, F2_brady_interp, F2_bradyHT_interp, W_sorted)
-    """
-
-    folder = "../getF1F2/Output"
-    f1_file = f"{folder}/ALL_Q2_broad_W_F1_cj15.txt"
-    f2_file = f"{folder}/ALL_Q2_broad_W_F2_cj15.txt"
-
-    # Load F1 and F2 files
-    # F1 file columns: Q2, W, F1_naked, F1_brady, F1_brady_alt, F1_bradyHT
-    df1 = pd.read_csv(
-        f1_file, sep=r'\s+', header=None,
-        names=["Q2", "W", "F1_naked", "F1_brady", "F1_brady_alt", "F1_bradyHT"]
-    )
-    # F2 file columns: Q2, W, F2_naked, F2_moffat, F2_brady0, F2_brady, F2_bradyHT
-    df2 = pd.read_csv(
-        f2_file, sep=r'\s+', header=None,
-        names=["Q2", "W", "F2_naked", "F2_moffat", "F2_brady0", "F2_brady", "F2_bradyHT"]
-    )
-
-    # Select rows with matching Q²
-    mask1 = np.isclose(df1["Q2"].values, fixed_Q2, atol=1e-6)
-    mask2 = np.isclose(df2["Q2"].values, fixed_Q2, atol=1e-6)
-    if not (mask1.any() and mask2.any()):
-        raise ValueError(f"Q²={fixed_Q2} not found in both F1 and F2 files.")
-
-    # Extract F1 data
-    W1 = df1.loc[mask1, "W"].values
-    F1_naked     = df1.loc[mask1, "F1_naked"].values
-    F1_brady     = df1.loc[mask1, "F1_brady"].values
-    F1_brady_alt = df1.loc[mask1, "F1_brady_alt"].values
-    F1_bradyHT   = df1.loc[mask1, "F1_bradyHT"].values
-
-    # Extract F2 data
-    W2 = df2.loc[mask2, "W"].values
-    F2_naked   = df2.loc[mask2, "F2_naked"].values
-    F2_brady   = df2.loc[mask2, "F2_brady"].values
-    F2_bradyHT = df2.loc[mask2, "F2_bradyHT"].values
-
-    # Common W grid
-    W_common = np.intersect1d(W1, W2)
-    W_sorted = np.sort(W_common)
-
-    # Interpolators
-    F1_naked_interp     = interp1d(W1, F1_naked,     kind='cubic', bounds_error=False, fill_value="extrapolate")
-    F1_brady_interp     = interp1d(W1, F1_brady,     kind='cubic', bounds_error=False, fill_value="extrapolate")
-    F1_brady_alt_interp = interp1d(W1, F1_brady_alt, kind='cubic', bounds_error=False, fill_value="extrapolate")
-    F1_bradyHT_interp   = interp1d(W1, F1_bradyHT,   kind='cubic', bounds_error=False, fill_value="extrapolate")
-
-    F2_naked_interp     = interp1d(W2, F2_naked,     kind='cubic', bounds_error=False, fill_value="extrapolate")
-    F2_brady_interp     = interp1d(W2, F2_brady,     kind='cubic', bounds_error=False, fill_value="extrapolate")
-    F2_bradyHT_interp   = interp1d(W2, F2_bradyHT,   kind='cubic', bounds_error=False, fill_value="extrapolate")
-
-    return (F1_naked_interp, F1_brady_interp, F1_brady_alt_interp, F1_bradyHT_interp, F2_naked_interp, F2_brady_interp, F2_bradyHT_interp, W_sorted)
+    # Single NaN-producing callable
+    def _nan_i(W):
+        W = np.asarray(W, dtype=float)
+        return np.full_like(W, np.nan, dtype=float)
+    
+    # Masks (more forgiving to float noise)
+    mask1 = np.isclose(df1["Q2"].to_numpy(), fixed_Q2, atol=q2_tol, rtol=0.0)
+    mask2 = np.isclose(df2["Q2"].to_numpy(), fixed_Q2, atol=q2_tol, rtol=0.0)
+    
+    # F2 (required)
+    if not mask2.any():
+        raise ValueError(f"Q²={fixed_Q2} not found in F2 file.")
+    W2         = df2.loc[mask2, "W"].to_numpy()
+    F2_LO   = df2.loc[mask2, "F2_LO"].to_numpy()
+    F2_LO_i   = _make_interp(W2, F2_LO)
 
 
+    # F1 (optional)
+    if mask1.any():
+        W1           = df1.loc[mask1, "W"].to_numpy()
+        F1_LO     = df1.loc[mask1, "F1_LO"].to_numpy()   
+        F1_LO_i      = _make_interp(W1, F1_LO)
 
-
-def compute_cross_section_pdf_with_error(W, Q2, beam_energy,
-                                         F1_W_interp, F2_W_interp,
-                                         F1_err_func=None, F2_err_func=None):
-    """
-    Computes the differential cross section and optionally its uncertainty
-    using interpolated PDF-based structure functions.
-
-    Returns:
-        dσ and (optional) dσ uncertainty (if error functions provided)
-    """
-    alpha = 1 / 137.04
-    Mp = 0.9385
-    pi = math.pi
-    wtot = math.sqrt(2 * Mp * beam_energy + Mp**2)
-    if W > wtot:
-        raise ValueError("W is greater than lab energy (w_tot).")
-
-    elepi = beam_energy
-    omeg = (W**2 + Q2 - Mp**2) / (2 * Mp)
-    elepf = elepi - omeg
-    if elepf <= 0:
-        raise ValueError("Final lepton energy is non-positive.")
-
-    plepi = elepi
-    plepf = elepf
-    clep = (-Q2 + 2 * elepi * elepf) / (2 * plepi * plepf)
-
-    fac3 = pi * W / (Mp * elepi * elepf)
-    fcrs3 = 4 * (alpha / Q2)**2 * (0.197327**2) * 1e4 * (elepf**2)
-
-    ss2 = (1 - clep) / 2
-    cc2 = (1 + clep) / 2
-
-    F1 = F1_W_interp(W)
-    F2 = F2_W_interp(W)
-    W1 = F1 / Mp
-    W2 = F2 / omeg
-
-    xxx = 2 * ss2 * W1 + cc2 * W2
-    dcrs = fcrs3 * fac3 * xxx
-
-    if F1_err_func is not None and F2_err_func is not None:
-        F1_err = F1_err_func(W)
-        F2_err = F2_err_func(W)
-        W1_err = F1_err / Mp
-        W2_err = F2_err / omeg
-        dcrs_err = fcrs3 * fac3 * np.sqrt((2 * ss2 * W1_err) ** 2 + (cc2 * W2_err) ** 2)
-        return dcrs, dcrs_err
     else:
-        return dcrs
+        W1 = None
+        F1_LO_i = _nan_i
+        
+    # W grid to report (keep your original behavior: F1∩F2 if F1 exists; else F2)
+    #W_sorted = np.sort(np.intersect1d(W1, W2)) if W1 is not None else np.sort(W2)
+    
+    W_sorted = np.sort(W2)  # base the range on F2 only
+
+    return (F1_LO_i, F2_LO_i, W_sorted)
+
     
     
-def get_nlo_pdf_cross_sections(W, Q2, beam_energy, F1_interp, F2_interp):
+    
+
+def get_nlo_pdf_interpolators(fixed_Q2, pdf_set, q2_tol=1e-4):
+    
+
+    folder  = f"../getF1F2/Output/Output_{pdf_set}"
+    f1_file = f"{folder}/F1.txt"
+    f2_file = f"{folder}/F2.txt"
+    fl_file = f"{folder}/FL.txt"
+
+    df1 = pd.read_csv(f1_file, sep=r"\s+", header=None,
+                      names=["Q2","W","F1_naked","F1_brady","F1_brady_alt","F1_bradyHT"])
+    df2 = pd.read_csv(f2_file, sep=r"\s+", header=None,
+                      names=["Q2","W","F2_naked","F2_moffat","F2_brady0","F2_brady","F2_bradyHT"])
+    df3 = pd.read_csv(fl_file, sep=r"\s+", header=None,
+                      names=["Q2","W","FL_naked","FL_moffat","FL_brady0","FL_brady","FL_bradyHT"])
+
+    # Helper: safe interpolator with sorting + cubic→linear fallback
+    def _make_interp(W, Y, kind="cubic"):
+        W = np.asarray(W, dtype=float)
+        Y = np.asarray(Y, dtype=float)
+        # sort & unique by W (keep first occurrence)
+        order = np.argsort(W)
+        Ws, Ys = W[order], Y[order]
+        # drop duplicate W
+        if np.any(np.diff(Ws) == 0):
+            uniq_idx = np.concatenate(([0], np.where(np.diff(Ws) != 0)[0] + 1))
+            Ws, Ys = Ws[uniq_idx], Ys[uniq_idx]
+        # fallback if too short for cubic
+        use_kind = kind if Ws.size >= 4 else "linear"
+        return interp1d(Ws, Ys, kind=use_kind, bounds_error=False, fill_value="extrapolate")
+
+    # Single NaN-producing callable
+    def _nan_i(W):
+        W = np.asarray(W, dtype=float)
+        return np.full_like(W, np.nan, dtype=float)
+
+    # Masks (more forgiving to float noise)
+    mask1 = np.isclose(df1["Q2"].to_numpy(), fixed_Q2, atol=q2_tol, rtol=0.0)
+    mask2 = np.isclose(df2["Q2"].to_numpy(), fixed_Q2, atol=q2_tol, rtol=0.0)
+    maskl = np.isclose(df3["Q2"].to_numpy(), fixed_Q2, atol=q2_tol, rtol=0.0)
+
+    # F2 (required)
+    if not mask2.any():
+        raise ValueError(f"Q²={fixed_Q2} not found in F2 file.")
+    W2         = df2.loc[mask2, "W"].to_numpy()
+    F2_naked   = df2.loc[mask2, "F2_naked"].to_numpy()
+    F2_brady   = df2.loc[mask2, "F2_brady"].to_numpy()
+    F2_bradyHT = df2.loc[mask2, "F2_bradyHT"].to_numpy()
+    F2_naked_i   = _make_interp(W2, F2_naked)
+    F2_brady_i   = _make_interp(W2, F2_brady)
+    F2_bradyHT_i = _make_interp(W2, F2_bradyHT)
+
+    # F1 (optional)
+    if mask1.any():
+        W1           = df1.loc[mask1, "W"].to_numpy()
+        F1_naked     = df1.loc[mask1, "F1_naked"].to_numpy()
+        F1_brady     = df1.loc[mask1, "F1_brady"].to_numpy()
+        F1_brady_alt = df1.loc[mask1, "F1_brady_alt"].to_numpy()
+        F1_bradyHT   = df1.loc[mask1, "F1_bradyHT"].to_numpy()
+        F1_naked_i      = _make_interp(W1, F1_naked)
+        F1_brady_i      = _make_interp(W1, F1_brady)
+        F1_brady_alt_i  = _make_interp(W1, F1_brady_alt)
+        F1_bradyHT_i    = _make_interp(W1, F1_bradyHT)
+    else:
+        W1 = None
+        F1_naked_i = F1_brady_i = F1_brady_alt_i = F1_bradyHT_i = _nan_i
+
+    # FL (optional)
+    if maskl.any():
+        Wl         = df3.loc[maskl, "W"].to_numpy()
+        FL_naked   = df3.loc[maskl, "FL_naked"].to_numpy()
+        FL_brady   = df3.loc[maskl, "FL_brady"].to_numpy()
+        FL_bradyHT = df3.loc[maskl, "FL_bradyHT"].to_numpy()
+        FL_naked_i   = _make_interp(Wl, FL_naked)
+        FL_brady_i   = _make_interp(Wl, FL_brady)
+        FL_bradyHT_i = _make_interp(Wl, FL_bradyHT)
+    else:
+        Wl = None
+        FL_naked_i = FL_moffat_i = FL_brady0_i = FL_brady_i = FL_bradyHT_i = _nan_i
+
+    # W grid to report (keep your original behavior: F1∩F2 if F1 exists; else F2)
+    #W_sorted = np.sort(np.intersect1d(W1, W2)) if W1 is not None else np.sort(W2)
+    
+    W_sorted = np.sort(W2)  # base the range on F2 only
+
+    return (F1_naked_i, F1_brady_i, F1_brady_alt_i, F1_bradyHT_i,
+            F2_naked_i, F2_brady_i, F2_bradyHT_i,
+            FL_naked_i, FL_brady_i, FL_bradyHT_i,
+            W_sorted)
+
+
+    
+    
+def compute_pdf_cross_sections(W, Q2, beam_energy, F1_interp, F2_interp): ## Renamed function name!
     """
-    Computes the differential cross section using NLO PDF-based
-    structure function interpolators (Brady tables).
+    Computes the differential cross section using PDF-based
+    structure function interpolators.
 
     Parameters:
         W          : hadronic invariant mass (GeV)
@@ -267,77 +223,52 @@ def get_nlo_pdf_cross_sections(W, Q2, beam_energy, F1_interp, F2_interp):
 
     return dcrs
 
+def compute_pdf_cross_sections_from_F2_FL(W, Q2, beam_energy, F2_func, FL_func): # E0 = beam energy for consistency, name changed for consistency
+    
+        E0 = beam_energy
+        # constants (keep local so the function is self-contained)
+        alpha = 1/137.035999084
+        GEV2_TO_UB = 389.379      # 1 GeV^-2 = 389.379 μb
+        M = 0.9385
 
-def get_lo_pdf_xsecs_table(q2_list, beam_energy,
-                           out_dir="lo_pdf_tables",
-                           fmt="%.6e"):
-    """
-    For each Q² in q2_list, compute LO PDF cross sections (with LO error band)
-    over the W grid returned by get_pdf_interpolators_with_error, and save a
-    3-column table:
-        #W    lo_pdf_xsect    error
-    Files are saved under out_dir as: lo_pdf_xsecs_Q2={Q2}_E={E}.dat
+        W2 = W*W
+        denom = W2 - M*M + Q2
+        if denom <= 0.0:
+            return np.nan
 
-    Args:
-        q2_list (iterable): list/tuple of Q² values (GeV²)
-        beam_energy (float): beam energy (GeV)
-        out_dir (str): output directory
-        fmt (str): numpy savetxt format for numbers (default scientific: '%.6e')
+        # DIS vars
+        x = Q2 / denom
+        if x <= 0.0:
+            return np.nan
+        K = (W2 - M*M) / (2.0*M)           # Hand K
+        rho2 = 1.0 + 4.0*M*M*x*x/Q2        # ρ²
 
-    Returns:
-        list of str: paths to the written files
-    """
-    import os
-    import numpy as np
+        # electron kinematics
+        nu = denom / (2.0*M)               # energy transfer (lab)
+        Ep = E0 - nu                       # scattered e- energy
+        den_ang = 4.0*E0*Ep - Q2
+        if Ep <= 0.0 or den_ang <= 0.0 or K <= 0.0:
+            return np.nan
+        tan2 = Q2 / den_ang
+        eps  = 1.0 / (1.0 + 2.0*(1.0 + (nu*nu)/Q2)*tan2)  # <-- your ε(ν)
 
-    os.makedirs(out_dir, exist_ok=True)
-    out_paths = []
+        # structure functions
+        F2 = F2_func(W)
+        FL = FL_func(W)
+        if not (np.isfinite(F2) and np.isfinite(FL)):
+            return np.nan
 
-    for q2 in q2_list:
-        try:
-            F1_W, F2_W, F1_err_f, F2_err_f, W_range = get_pdf_interpolators_with_error(q2, central_iset=400)
-        except Exception as e:
-            print(f"[WARN] Skipping Q²={q2}: failed to build LO interpolators ({e})")
-            continue
+        # Identity: W(W^2−M^2)/(2 x K) = (W M)/x
+        pref = (alpha*alpha*math.pi) * (W / (E0*E0 * M*M * (1.0 - eps) * Q2 * x))
+        val = pref * (F2*rho2 + FL*(eps - 1.0))
+        return val * GEV2_TO_UB
 
-        W_vals, sig_vals, err_vals = [], [], []
 
-        for W in W_range:
-            try:
-                sigma, sigma_err = compute_cross_section_pdf_with_error(
-                    W, q2, beam_energy, F1_W, F2_W, F1_err_f, F2_err_f
-                )
-                W_vals.append(W)
-                sig_vals.append(sigma)
-                err_vals.append(sigma_err)
-            except Exception:
-                # kinematically invalid point (e.g., W>wtot or E'<0) → skip row
-                continue
 
-        if len(W_vals) == 0:
-            print(f"[WARN] No valid points for Q²={q2} at E={beam_energy}. Skipping file.")
-            continue
 
-        W_vals = np.asarray(W_vals, dtype=float)
-        sig_vals = np.asarray(sig_vals, dtype=float)
-        err_vals = np.asarray(err_vals, dtype=float)
-
-        table = np.column_stack([W_vals, sig_vals, err_vals])
-
-        q2_str = str(q2).rstrip("0").rstrip(".")
-        fname = f"lo_pdf_xsecs_Q2={q2_str}_E={beam_energy}.dat"
-        out_path = os.path.join(out_dir, fname)
-
-        header = "#W\tlo_pdf_xsect\terror"
-        np.savetxt(out_path, table, fmt=fmt, delimiter="\t", header=header, comments="")
-
-        out_paths.append(out_path)
-        print(f"Saved → {out_path}")
-
-    return out_paths
-
-def get_nlo_pdf_xsecs_table(fixed_Q2, beam_energy,
-                             out_dir="pdf_tables",
+def get_pdf_xsecs_table(fixed_Q2, beam_energy,
+                             pdf_set_nlo, pdf_set_lo,
+                             out_dir="PDF_based_xsecs_tables",
                              use_F1_alt=False,
                              W_vals=None,
                              filename=None):
@@ -357,143 +288,96 @@ def get_nlo_pdf_xsecs_table(fixed_Q2, beam_energy,
     Returns:
         str: path to the written .dat file
     """
-    import os
-    import numpy as np
 
     # Build NLO interpolators
-    F1_brady, F1_brady_alt, F1_bradyHT, F2_brady, F2_HT, W_common = get_nlo_pdf_interpolators(fixed_Q2)
+    F1_naked, F1_brady, F1_brady_alt, F1_bradyHT, F2_naked, F2_brady, F2_bradyHT,_,_,_, W_common = get_nlo_pdf_interpolators(fixed_Q2, pdf_set=pdf_set_nlo)
+    
+    # Build LO interpolators 
+    F1_LO, F2_LO, W_common_lo = get_lo_pdf_interpolators(fixed_Q2, pdf_set=pdf_set_lo)
+    
 
-    # Choose F1
-    F1_use = F1_brady_alt if use_F1_alt else F1_brady
-    F1_use_ht = F1_bradyHT
-
-    # Choose W grid
-    if W_vals is None:
-        W_vals = np.asarray(W_common, dtype=float)
+    if W_vals is not None:
+        W_grid = np.asarray(W_vals, dtype=float)
     else:
-        W_vals = np.asarray(W_vals, dtype=float)
+    # safer: intersect to avoid extrapolation surprises
+        W_grid = np.sort(np.intersect1d(np.asarray(W_common, dtype=float),np.asarray(W_common_lo, dtype=float)))
+
+        
+  
 
     # Compute cross sections
-    tmc_vals = []
-    tmc_ht_vals = []
-    for W in W_vals:
+    lo_xsec = []
+    nlo_xsec = []
+    nlo_tmc_xsec = []
+    nlo_tmc_ht_xsec = []
+    
+    
+    # LO xsecs
+    for W in W_grid:
+        #LO
         try:
-            tmc_vals.append(get_nlo_pdf_cross_sections(W, fixed_Q2, beam_energy,
-                                                       F1_interp=F1_use, F2_interp=F2_brady))
+            lo_xsec.append(compute_pdf_cross_sections(W, fixed_Q2, beam_energy,
+                                                       F1_interp=F1_LO, F2_interp=F2_LO))
         except Exception:
-            tmc_vals.append(np.nan)
+            lo_xsec.append(np.nan)
+        #NLO
         try:
-            tmc_ht_vals.append(get_nlo_pdf_cross_sections(W, fixed_Q2, beam_energy,
-                                                          F1_interp=F1_use_ht, F2_interp=F2_HT))
+            nlo_xsec.append(compute_pdf_cross_sections(W, fixed_Q2, beam_energy,
+                                                       F1_interp=F1_naked, F2_interp=F2_naked))
         except Exception:
-            tmc_ht_vals.append(np.nan)
+            nlo_xsec.append(np.nan)
+        #NLO TMC
+        try:
+            nlo_tmc_xsec.append(compute_pdf_cross_sections(W, fixed_Q2, beam_energy,
+                                                          F1_interp=F1_brady, F2_interp=F2_brady))
+        except Exception:
+            nlo_tmc_xsec.append(np.nan)
+        #NLO TMC HT
+        try:
+            nlo_tmc_ht_xsec.append(compute_pdf_cross_sections(W, fixed_Q2, beam_energy,
+                                                          F1_interp=F1_bradyHT, F2_interp=F2_bradyHT))
+        except Exception:
+            nlo_tmc_ht_xsec.append(np.nan)    
+        
 
-    tmc_vals = np.asarray(tmc_vals, dtype=float)
-    tmc_ht_vals = np.asarray(tmc_ht_vals, dtype=float)
+    lo_xsec = np.asarray(lo_xsec, dtype=float)
+    nlo_xsec = np.asarray(nlo_xsec, dtype=float)
+    nlo_tmc_xsec = np.asarray(nlo_tmc_xsec, dtype=float)
+    nlo_tmc_ht_xsec = np.asarray(nlo_tmc_ht_xsec, dtype=float)
 
-    # Assemble table: Q2, W, TMC_xsection, TMC_HT_xsection
-    Q2_col = np.full_like(W_vals, float(fixed_Q2), dtype=float)
-    table = np.column_stack([Q2_col, W_vals, tmc_vals, tmc_ht_vals])
+    # Assemble table: Q2, W, TMC_HT_xsection
+    Q2_col = np.full_like(W_grid, float(fixed_Q2), dtype=float)
+    table = np.column_stack([Q2_col, W_grid, lo_xsec, nlo_xsec, nlo_tmc_xsec, nlo_tmc_ht_xsec])
 
     # Save
     os.makedirs(out_dir, exist_ok=True)
     if filename is None:
         q2_str = str(fixed_Q2).rstrip("0").rstrip(".")
-        filename = f"pdf_xsecs_Q2={q2_str}_E={beam_energy}.dat"
+        filename = f"PDF_based_xsecs_Q2={q2_str}_E={beam_energy}_nlo_from_{pdf_set_nlo}_lo_from_{pdf_set_lo}.dat"
     out_path = os.path.join(out_dir, filename)
 
-    header = "Q2\tW\tTMC_xsection\tTMC_HT_xsection"
+    header = "Q2\tW\tLO_xsection(mub/GeV)\tNLO_xsection(mub/GeV)\tNLO_TMC_xsection(mub/GeV)\tNLO_TMC_HT_xsection(mub/GeV)"
     np.savetxt(out_path, table, fmt="%.6e", delimiter="\t", header=header, comments="")
 
     return out_path
 
 
-def get_pdf_struct_func_table(Q2_list, vs_what="x"):
-    """
-    For each Q² in Q2_list, write:
-      pdf_based_struct_func_LO_NLO/pdf_struct_func_Q2={Q2}.dat
-
-    Columns (tab-separated):
-      x (or W), F1_NLO_TMC_only, F1_NLO_TMC_only_alternative, F1_NLO_TMC_HT_prelim,
-      F2_NLO_TMC_only, F2_NLO_TMC_HT, F1_LO, F2_LO
-
-    Uses:
-      - get_nlo_pdf_interpolators(fixed_Q2)  -> F1_brady, F1_brady_alt, F1_bradyHT, F2_brady, F2_bradyHT, W_nlo
-      - get_pdf_interpolators_with_error(fixed_Q2) -> F1_LO, F2_LO, (errs...), W_lo
-
-    If a given Q² is missing in either source, it is skipped.
-    """
-    import os
-    import numpy as np
-
-    out_dir = "pdf_based_struct_func_LO_NLO"
-    os.makedirs(out_dir, exist_ok=True)
-
-    Mp = 0.9385
-
-    for Q2 in Q2_list:
-        try:
-            # NLO (Brady)
-            F1_b, F1_b_alt, F1_b_HT, F2_b, F2_b_HT, W_nlo = get_nlo_pdf_interpolators(Q2)
-            # LO
-            F1_lo, F2_lo, _, _, W_lo = get_pdf_interpolators_with_error(Q2, central_iset=400)
-        except Exception as e:
-            print(f"[WARN] Q²={Q2}: skipping (failed to build interpolators) -> {e}")
-            continue
-
-        # Shared W grid (union). Keep it simple and let interpolators extrapolate if needed.
-        W_grid = np.unique(np.concatenate([np.asarray(W_nlo, dtype=float),
-                                           np.asarray(W_lo,  dtype=float)]))
-        # Evaluate structure functions at W
-        F1_nlo_tmc      = F1_b(W_grid)
-        F1_nlo_tmc_alt  = F1_b_alt(W_grid)
-        F1_nlo_tmc_ht   = F1_b_HT(W_grid)
-        F2_nlo_tmc      = F2_b(W_grid)
-        F2_nlo_tmc_ht   = F2_b_HT(W_grid)
-        F1_lo_vals      = F1_lo(W_grid)
-        F2_lo_vals      = F2_lo(W_grid)
-
-        # Choose output abscissa
-        if str(vs_what).lower() == "x":
-            # x_Bj(Q2, W) = Q2 / (W^2 - M^2 + Q2)
-            denom = (W_grid**2 - Mp**2 + Q2)
-            x_vals = Q2 / denom
-            # Keep only physically sane x>0 (avoid zeros/negatives)
-            mask = x_vals > 0
-            x_vals = x_vals[mask]
-            # Apply the same mask to all columns
-            cols = [
-                x_vals,
-                F1_nlo_tmc[mask], F1_nlo_tmc_alt[mask], F1_nlo_tmc_ht[mask],
-                F2_nlo_tmc[mask], F2_nlo_tmc_ht[mask],
-                F1_lo_vals[mask], F2_lo_vals[mask],
-            ]
-            # Sort by x ascending
-            order = np.argsort(x_vals)
-            cols = [c[order] for c in cols]
-            header_first = "x"
-        else:
-            # vs W
-            cols = [
-                W_grid,
-                F1_nlo_tmc, F1_nlo_tmc_alt, F1_nlo_tmc_ht,
-                F2_nlo_tmc, F2_nlo_tmc_ht,
-                F1_lo_vals, F2_lo_vals,
-            ]
-            header_first = "W"
-
-        table = np.column_stack(cols)
-
-        # Save
-        q2_str = str(Q2).rstrip("0").rstrip(".")
-        out_path = os.path.join(out_dir, f"pdf_struct_func_Q2={q2_str}.dat")
-        header = (
-            f"{header_first}\t"
-            "F1_NLO_TMC_only\tF1_NLO_TMC_only_alternative\tF1_NLO_TMC_HT_prelim\t"
-            "F2_NLO_TMC_only\tF2_NLO_TMC_HT\tF1_LO\tF2_LO"
-        )
-        np.savetxt(out_path, table, fmt="%.6e", delimiter="\t", header=header, comments="")
-        print("Saved →", out_path)
 
 
-#get_pdf_struct_func_table([0.5, 0.75, 1.0, 1.75, 2.0, 2.5, 2.774, 3.0], vs_what="x")
+
+
+
+get_pdf_xsecs_table(fixed_Q2=2.774, beam_energy=10.6, pdf_set_nlo="CJ15nlo", pdf_set_lo="CJ15lo", W_vals=np.arange(1.07, 2.51, 0.01))
+get_pdf_xsecs_table(fixed_Q2=3.244, beam_energy=10.6, pdf_set_nlo="CJ15nlo", pdf_set_lo="CJ15lo", W_vals=np.arange(1.07, 2.51, 0.01))
+get_pdf_xsecs_table(fixed_Q2=3.793, beam_energy=10.6, pdf_set_nlo="CJ15nlo", pdf_set_lo="CJ15lo", W_vals=np.arange(1.07, 2.51, 0.01))
+get_pdf_xsecs_table(fixed_Q2=4.435, beam_energy=10.6, pdf_set_nlo="CJ15nlo", pdf_set_lo="CJ15lo", W_vals=np.arange(1.07, 2.51, 0.01))
+get_pdf_xsecs_table(fixed_Q2=5.187, beam_energy=10.6, pdf_set_nlo="CJ15nlo", pdf_set_lo="CJ15lo", W_vals=np.arange(1.07, 2.51, 0.01))
+get_pdf_xsecs_table(fixed_Q2=6.065, beam_energy=10.6, pdf_set_nlo="CJ15nlo", pdf_set_lo="CJ15lo", W_vals=np.arange(1.07, 2.51, 0.01))
+get_pdf_xsecs_table(fixed_Q2=7.093, beam_energy=10.6, pdf_set_nlo="CJ15nlo", pdf_set_lo="CJ15lo", W_vals=np.arange(1.07, 2.51, 0.01))
+get_pdf_xsecs_table(fixed_Q2=8.294, beam_energy=10.6, pdf_set_nlo="CJ15nlo", pdf_set_lo="CJ15lo", W_vals=np.arange(1.07, 2.51, 0.01))
+get_pdf_xsecs_table(fixed_Q2=9.699, beam_energy=10.6, pdf_set_nlo="CJ15nlo", pdf_set_lo="CJ15lo", W_vals=np.arange(1.07, 2.26, 0.01))
+#get_pdf_xsecs_table(fixed_Q2=12.0,beam_energy=15.0, pdf_set_nlo="CJ15nlo", pdf_set_lo="CJ15lo", W_vals=np.arange(1.07, 2.51, 0.01))
+#get_pdf_xsecs_table(fixed_Q2=14.0,beam_energy=15.0, pdf_set_nlo="CJ15nlo", pdf_set_lo="CJ15lo", W_vals=np.arange(1.07, 2.51, 0.01))
+#get_pdf_xsecs_table(fixed_Q2=16.0,beam_energy=22.0, pdf_set_nlo="CJ15nlo", pdf_set_lo="CJ15lo", W_vals=np.arange(1.07, 2.51, 0.01))
+#get_pdf_xsecs_table(fixed_Q2=18.0,beam_energy=22.0, pdf_set_nlo="CJ15nlo", pdf_set_lo="CJ15lo", W_vals=np.arange(1.07, 2.51, 0.01))
+#get_pdf_xsecs_table(fixed_Q2=20.0,beam_energy=22.0, pdf_set_nlo="CJ15nlo", pdf_set_lo="CJ15lo", W_vals=np.arange(1.07, 2.51, 0.01))

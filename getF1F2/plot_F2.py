@@ -70,11 +70,21 @@ for i, Q2 in enumerate(Q2_targets):
     ax.plot(W, F2_tmc_only, label='CJ15 LT + TMC only',    color='red', linestyle='dashed')
 
     # Experimental points with uncertainties
-    ax.errorbar(
-        W_e, F2_e, yerr=dF2_e,
-        fmt='o', markersize=3, capsize=2, linewidth=1.0,
-        label='CLAS + World data', color='black'
-    )
+    
+   
+    
+    if(np.isclose(4.025, Q2)):
+        ax.errorbar(
+            W_e, F2_e, yerr=dF2_e,
+            fmt='o', markersize=3, capsize=2, linewidth=1.0,
+            label='CLAS + World data', color='black'
+        )
+    else:
+         ax.errorbar(
+            W_e, F2_e, yerr=dF2_e,
+            fmt='o', markersize=3, capsize=2, linewidth=1.0,
+            label='CLAS data only', color='black'
+        )
 
     ax.set_title(f'Q² = {Q2} GeV²')
     ax.set_xlabel('W [GeV]')
@@ -86,5 +96,5 @@ for i, Q2 in enumerate(Q2_targets):
 
 plt.suptitle('F2 vs W for different Q² (CJ15nlo) with and without TMC correction', fontsize=16)
 plt.tight_layout(rect=[0, 0.03, 1, 0.94])
-plt.savefig("F2_vs_W_2x2_TMC_vs_uncorr_with_exp.png", dpi=300)
+plt.savefig("F2_vs_W_2x2_TMC_vs_uncorr_with_exp.pdf", dpi=300)
 plt.show()
