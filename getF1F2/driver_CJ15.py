@@ -4,24 +4,29 @@ import numpy as np
 from scipy.integrate import quad,fixed_quad,dblquad
 from theory import IDIS
 
-#thy=IDIS('JAM19PDF_proton_nlo')
-pdf_set="CT18NLO"
-thy=IDIS(pdf_set)
-M=thy.M
-mpi=thy.mpi
+
+
 h0p = -3.2874
 h1p = 1.9274
 h2p = -2.0701
-def x_of_W(W,Q2): return Q2 / (W*W - M*M + Q2)
+
+
 
 #	Writes F2 fixed Q2 files
-def mainF2F1():
+def mainF2F1(pdf_set):
+  pdf_set=pdf_set
+  thy=IDIS(pdf_set)
+  M=thy.M
+  mpi=thy.mpi
+  def x_of_W(W,Q2): return Q2 / (W*W - M*M + Q2)
+  
+  
   out_dir = f"Output/Output_{pdf_set}"
   os.makedirs(out_dir, exist_ok=True)
-  f2 = open(f"{out_dir}/F2.txt","w")
-  f1 = open(f"{out_dir}/F1.txt","w")
-  fl = open(f"{out_dir}/FL.txt","w")
-  for Q2 in [2.774,3.244,3.793,4.435,5.187,6.065,7.093,8.294,9.699]:
+  f2 = open(f"{out_dir}/F2_almost_all.txt","w")
+  f1 = open(f"{out_dir}/F1_almost_all.txt","w")
+  fl = open(f"{out_dir}/FL_almost_all.txt","w")
+  for Q2 in [1.025, 2.025, 3.025, 4.025, 11.25, 12.0, 14.0, 16.0, 18.0, 20.0, 22.5, 25.0, 27.5, 30.0]:
     for i in range(0,1500):
       W = 1.07+0.02*i                         #M_prot+mpi+i*0.01
       nu = (W**2 - M**2 + Q2)/(2*M)
@@ -107,7 +112,13 @@ def mainFLW():
       FLbrady=FLbrady0+x*(rho**2-1.0)/rho**2*(h2+(rho**2-1.0)/(2.0*x*rho)*g2)
       flw.write(str(Q2)+"\t"+str(W)+"\t"+str(FLbrady)+"\n")
 
-def mainF2trunc(res_region):
+def mainF2trunc(pdf_set, res_region):
+  pdf_set=pdf_set
+  thy=IDIS(pdf_set)
+  M=thy.M
+  mpi=thy.mpi
+  def x_of_W(W,Q2): return Q2 / (W*W - M*M + Q2)
+  
   f2 = open(f"Output/F2_trunc_cj15_{res_region}.txt","w")
   f1 = open(f"Output/F1_trunc_cj15_{res_region}.txt","w")
   #fl = open("Output/FL_trunc_cj15.txt","w")
@@ -253,7 +264,8 @@ if __name__== "__main__":
      #mainTMC()
      #mainF2trunc("full")
      #mainF2trunc("part")
-     mainF2F1()
+     mainF2F1("CJ15nlo")
+     mainF2F1("CT18NLO")
     #mainFLQ2()
 #    mainFLW()
 

@@ -219,6 +219,7 @@ def compare_F2(Q2_list, pdf_set_lo, pdf_set_nlo, num_points=400, W_cutoff=4.0):
 
         plt.xlabel("W (GeV)")
         plt.ylabel(r"$F_2(W; Q^2)$")
+        plt.ylim(0,0.5)
         plt.grid(True)
         plt.legend(handles=handles, loc="upper left", fontsize="small")
 
@@ -230,7 +231,7 @@ def compare_F2(Q2_list, pdf_set_lo, pdf_set_nlo, num_points=400, W_cutoff=4.0):
 
 
 def compare_xsecs(fixed_Q2, beam_energy, pdf_set_lo, pdf_set_nlo,
-                   W_cutoff = 2.5,
+                   W_cutoff ,
                    interp_file="input_data/wempx.dat",
                    onepi_file="input_data/wemp-pi.dat",
                    num_points=200):
@@ -254,7 +255,12 @@ def compare_xsecs(fixed_Q2, beam_energy, pdf_set_lo, pdf_set_nlo,
 
     # Containers
     anl_full_xs, anl_onepi_xs = [], []
-    pdf_lo_xs, pdf_lo_err = [], []
+    if fixed_Q2 > 3.0:
+        have_AO = have_AO_1pi = False
+    else:
+        have_AO = have_AO_1pi = True
+    
+    pdf_lo_xs = []
     pdf_nlo_xs, pdf_nlo_tmc_xs, pdf_nlo_tmc_ht_xs  = [], [], []
     pdf_nlo_tmc_ht_F2FL_xs = []  # new curve - calculation from F2 and FL
 
@@ -296,7 +302,7 @@ def compare_xsecs(fixed_Q2, beam_energy, pdf_set_lo, pdf_set_nlo,
         except Exception:
             anl_onepi_xs.append(np.nan)
 
-        # LO with band (limit to native W range)
+        # LO 
         if have_lo and (W_lo_min <= w <= W_lo_max):
             try:
                 val = compute_pdf_cross_sections(w, fixed_Q2, beam_energy, F1_interp=F1_LO, F2_interp=F2_LO)
@@ -344,7 +350,7 @@ def compare_xsecs(fixed_Q2, beam_energy, pdf_set_lo, pdf_set_nlo,
     pdf_nlo_tmc_ht_xs      = np.asarray(pdf_nlo_tmc_ht_xs)    if have_nlo else np.array([])
     pdf_nlo_tmc_ht_F2FL_xs    = np.asarray(pdf_nlo_tmc_ht_F2FL_xs) if have_nlo else np.array([])
 
-    # ---------- RGA data (unchanged) ----------
+    # ---------- RGA data  ----------
     have_rga = False
     try:
         rga_file = f"exp_data/InclusiveExpValera_Q2={fixed_Q2}.dat"
@@ -358,39 +364,66 @@ def compare_xsecs(fixed_Q2, beam_energy, pdf_set_lo, pdf_set_nlo,
             have_rga = (W_rga.size > 0)
     except Exception:
         have_rga = False
-
+        
+       # ---------- AO extended model ----------
+    have_AO_ext = False
+    try:
+        AO_ext_file = f"model_tables/Wdist_Q2_{fixed_Q2}_GLOBAL.dat"
+        if os.path.isfile(AO_ext_file):
+            AO_ext = np.genfromtxt(
+                AO_ext_file,
+                names=["W", "sigma"],   # second column is the cross section
+                delimiter=None,         # whitespace-separated
+                skip_header=0           # set to 1 only if there's a header line
+            )
+            m = (AO_ext["W"] >= W_lo) & (AO_ext["W"] <= W_hi)
+            W_AO_ext     = AO_ext["W"][m]
+            sigma_AO_ext = AO_ext["sigma"][m]
+            have_AO_ext  = (W_AO_ext.size > 0)
+    except Exception:
+        have_AO_ext = False
+        print("No AO extended model data found:")
+  
     # ---------- Plot ----------
     plt.figure(figsize=(8, 6))
     handles = [plt.Line2D([], [], color='white',
                label=f"Q² = {fixed_Q2:.3f} GeV², E = {beam_energy} GeV")]
     
-    #good_anl_full = np.isfinite(anl_full_xs)
-    #h_model_full, = plt.plot(W_vals[good_anl_full], anl_full_xs[good_anl_full],
-    #                     label="ANL-Osaka full", color="black", ls="solid", lw=2)
-    #handles.append(h_model_full)
-    #
-    #good_anl_1pi = np.isfinite(anl_onepi_xs)
-    #h_model_1pi, = plt.plot(W_vals[good_anl_1pi], anl_onepi_xs[good_anl_1pi],
-    #                     label=r"ANL-Osaka 1$\pi$ contribution", color="black", ls="dashed", lw=2)
-    #handles.append(h_model_1pi)
-
-    if have_lo and np.isfinite(pdf_lo_xs).any():
-        good_lo = np.isfinite(pdf_lo_xs)
-        h_pdf_lo, = plt.plot(W_vals[good_lo], pdf_lo_xs[good_lo],
-                             label=f"{pdf_set_lo}: LO + LT", color="blue", ls="dotted", lw=2)
-        handles.append(h_pdf_lo)
-
-    if np.isfinite(pdf_nlo_xs).any():
-        good_nlo = np.isfinite(pdf_nlo_xs)
-        h_pdf_nlo_lt, = plt.plot(W_vals[good_nlo], pdf_nlo_xs[good_nlo],
-                                 label=f"{pdf_set_nlo}: NLO + LT", color="purple", ls="dashdot", lw=2)
-        handles.append(h_pdf_nlo_lt)
+    if have_AO:
+        good_anl_full = np.isfinite(anl_full_xs)
+        h_model_full, = plt.plot(W_vals[good_anl_full], anl_full_xs[good_anl_full],
+                             label="ANL-Osaka full", color="black", ls="solid", lw=2)
+        handles.append(h_model_full)
         
-    if np.isfinite(pdf_nlo_tmc_xs).any():
-        good_nlo_tmc = np.isfinite(pdf_nlo_tmc_xs)
-        h_pdf_nlo, = plt.plot(W_vals[good_nlo_tmc], pdf_nlo_tmc_xs[good_nlo_tmc],
-                              label=f"{pdf_set_nlo}: NLO + LT + TMC(OPE)", color="green", ls="dashdot", lw=2)
-        handles.append(h_pdf_nlo)
+    if have_AO_ext:
+            h_AO_ext = plt.errorbar(W_AO_ext, sigma_AO_ext,
+                                 color="black", ls="solid", lw=2,
+                                 label="ANL-Osaka full (extended)")
+            handles.append(h_AO_ext)
+    
+    #if have_AO_1pi:
+    #    good_anl_1pi = np.isfinite(anl_onepi_xs)
+    #    h_model_1pi, = plt.plot(W_vals[good_anl_1pi], anl_onepi_xs[good_anl_1pi],
+    #                         label=r"ANL-Osaka 1$\pi$ contribution", color="black", ls="dashed", lw=2)
+    #    handles.append(h_model_1pi)
+
+    #if have_lo and np.isfinite(pdf_lo_xs).any():
+    #    good_lo = np.isfinite(pdf_lo_xs)
+    #    h_pdf_lo, = plt.plot(W_vals[good_lo], pdf_lo_xs[good_lo],
+    #                         label=f"{pdf_set_lo}: LO + LT", color="blue", ls="dotted", lw=2)
+    #    handles.append(h_pdf_lo)
+#
+    #if np.isfinite(pdf_nlo_xs).any():
+    #    good_nlo = np.isfinite(pdf_nlo_xs)
+    #    h_pdf_nlo_lt, = plt.plot(W_vals[good_nlo], pdf_nlo_xs[good_nlo],
+    #                             label=f"{pdf_set_nlo}: NLO + LT", color="purple", ls="dashdot", lw=2)
+    #    handles.append(h_pdf_nlo_lt)
+    #    
+    #if np.isfinite(pdf_nlo_tmc_xs).any():
+    #    good_nlo_tmc = np.isfinite(pdf_nlo_tmc_xs)
+    #    h_pdf_nlo_tmc, = plt.plot(W_vals[good_nlo_tmc], pdf_nlo_tmc_xs[good_nlo_tmc],
+    #                          label=f"{pdf_set_nlo}: NLO + LT + TMC(OPE)", color="green", ls="dashdot", lw=2)
+    #    handles.append(h_pdf_nlo_tmc)
 
     if np.isfinite(pdf_nlo_tmc_ht_xs).any():
         good_nlo_tmc_ht = np.isfinite(pdf_nlo_tmc_ht_xs)
@@ -410,15 +443,18 @@ def compare_xsecs(fixed_Q2, beam_energy, pdf_set_lo, pdf_set_nlo,
                              fmt="s", color="magenta", capsize=1, ms=2,
                              label="RGA data (V. Klimenko)")
         handles.append(h_rga)
+        
+    
 
     plt.xlabel("W (GeV)")
     plt.ylabel(r"$d \sigma / dW dQ^2$ ($\mathrm{\mu bn/GeV^3}$)")
+    plt.title(f"Comparison of cross sections at Q²={fixed_Q2} GeV², E={beam_energy} GeV")
     plt.grid(True)
-    plt.xlim(1, W_cutoff + 0.1)
+    plt.xlim(1, W_hi*1.1)
     if handles:
-        plt.legend(handles=handles, loc="upper left", fontsize="small")
+        plt.legend(handles=handles, loc="lower right", fontsize="small")
 
-    fname = f"{out_dir}/compare_xsecs_Q2={fixed_Q2}_E={beam_energy}.pdf"
+    fname = f"{out_dir}/compare_xsecs_Q2={fixed_Q2}_E={beam_energy}_W_max={W_cutoff}.pdf"
     plt.savefig(fname, dpi=300)
     plt.close()
     print("Saved →", fname)
@@ -426,9 +462,11 @@ def compare_xsecs(fixed_Q2, beam_energy, pdf_set_lo, pdf_set_nlo,
 
 
 
-#for q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
-#    compare_xsecs(fixed_Q2=q2, beam_energy=10.6, pdf_set_lo="CT18LO", pdf_set_nlo="CT18NLO", W_cutoff=2.5)
-#    compare_xsecs(fixed_Q2=q2, beam_energy=10.6, pdf_set_lo="CJ15lo", pdf_set_nlo="CJ15nlo", W_cutoff=2.5)
+for q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
+    compare_xsecs(fixed_Q2=q2, beam_energy=10.6, pdf_set_lo="CT18LO", pdf_set_nlo="CT18NLO", W_cutoff=2.5)
+    compare_xsecs(fixed_Q2=q2, beam_energy=10.6, pdf_set_lo="CJ15lo", pdf_set_nlo="CJ15nlo", W_cutoff=2.5)
+    compare_xsecs(fixed_Q2=q2, beam_energy=10.6, pdf_set_lo="CT18LO", pdf_set_nlo="CT18NLO", W_cutoff=5)
+    compare_xsecs(fixed_Q2=q2, beam_energy=10.6, pdf_set_lo="CJ15lo", pdf_set_nlo="CJ15nlo", W_cutoff=5)
     
 #compare_F2([1.025,2.025, 2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699, 15.0, 20.0], pdf_set_lo="CJ15lo", pdf_set_nlo="CJ15nlo", W_cutoff=1.8)
 #compare_F2([1.025,2.025, 2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699, 15.0, 20.0],pdf_set="CJ15nlo", W_cutoff=2.5)
@@ -437,8 +475,8 @@ def compare_xsecs(fixed_Q2, beam_energy, pdf_set_lo, pdf_set_nlo,
 #compare_F2([1.025,2.025, 2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699, 15.0, 20.0],pdf_set="CJ15nlo", W_cutoff=20.0)
 #compare_F2([1.025, 2.025, 2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699, 15.0, 20.0],pdf_set="CJ15nlo", W_cutoff=30.0)
 
-compare_F1([2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699], pdf_set_lo="CJ15lo", pdf_set_nlo="CJ15nlo", W_cutoff=30.0)
-compare_F1([2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699], pdf_set_lo="CT18LO", pdf_set_nlo="CT18NLO", W_cutoff=30.0)
+#compare_F2([2.774], pdf_set_lo="CJ15nlo", pdf_set_nlo="CJ15nlo", W_cutoff=5)
+#compare_F2([2.774], pdf_set_lo="CT18NLO", pdf_set_nlo="CT18NLO", W_cutoff=5)
 
 
 
