@@ -262,6 +262,113 @@ def compute_pdf_cross_sections_from_F2_FL(W, Q2, beam_energy, F2_func, FL_func):
         pref = (alpha*alpha*math.pi) * (W / (E0*E0 * M*M * (1.0 - eps) * Q2 * x))
         val = pref * (F2*rho2 + FL*(eps - 1.0))
         return val * GEV2_TO_UB
+    
+
+
+
+
+def get_R_from_F1F2(W, Q2, E_beam, F1_interp, F2_interp):
+    """
+    Compute R = σ_L / σ_T and d²σ/dW dQ² from F1 and F2 interpolators
+    at given (W, Q², E_beam).
+
+    Args:
+        W        (float): hadronic invariant mass (GeV)
+        Q2       (float): Q^2 (GeV^2)
+        E_beam   (float): beam energy E (GeV)
+        F1_interp: callable F1(W) interpolator
+        F2_interp: callable F2(W) interpolator
+
+    Returns:
+        R, sigma_L, sigma_T, d2sigma_dWdQ2
+
+        σ_L, σ_T in GeV^{-2}, d²σ/dW dQ² in μb / GeV^3
+    """
+
+    # constants
+    alpha = 1.0 / 137.035999084
+    M = 0.9385
+    GEV2_TO_UB = 389.379  # 1 GeV^{-2} = 389.379 μb
+    
+    nan6 = (np.nan, np.nan, np.nan, np.nan, np.nan, np.nan)
+
+    W2 = W * W
+    numer = W2 - M * M + Q2
+    if numer <= 0.0 or Q2 <= 0.0:
+        return nan6
+
+    # Hand K
+    K = (W2 - M * M) / (2.0 * M)
+    if K <= 0.0:
+        return nan6
+
+    # energy transfer (lab)
+    nu = numer / (2.0 * M)
+    if nu <= 0.0:
+        return nan6
+
+    # scattered electron energy
+    E = float(E_beam)
+    E_prime = E - nu
+    if E_prime <= 0.0:
+        return nan6
+
+    # structure functions at this W
+    F1 = float(F1_interp(W))
+    F2 = float(F2_interp(W))
+    if not (np.isfinite(F1) and np.isfinite(F2)):
+        return nan6
+
+    # W1, W2 from F1, F2
+    W1 = F1 / M
+    W2 = F2 / nu
+
+    # prefactor from σ_T, σ_L equations
+    pref = 4.0 * math.pi**2 * alpha / K
+
+    # σ_T, σ_L in GeV^{-2}
+    sigma_T = pref * W1
+    sigma_L = pref * ((1.0 + nu**2 / Q2) * W2 - W1)
+    
+
+    # ratio R
+    R = sigma_L / sigma_T if sigma_T != 0.0 else np.nan
+    
+    #Cross check: back to W1, W2 from σ_T, R
+    W1_pdf = sigma_T/pref
+    W2_pdf = (R + 1.0) * W1_pdf / (1.0 + nu**2 / Q2)
+
+    # virtual photon polarization ε
+    # sin^2(theta/2) from Q^2 = 4 E E' sin^2(theta/2)
+    sin2_half_theta = Q2 / (4.0 * E * E_prime)
+    if sin2_half_theta <= 0.0 or sin2_half_theta >= 1.0:
+        return R, sigma_L, sigma_T, np.nan, W1_pdf, W2_pdf
+
+    tan2_half_theta = sin2_half_theta / (1.0 - sin2_half_theta)
+    eps = 1.0 / (1.0 + 2.0 * (1.0 + nu**2 / Q2) * tan2_half_theta)
+
+    # Hand flux Γ_Hand
+    if eps >= 1.0:
+        return R, sigma_L, sigma_T, np.nan, W1_pdf, W2_pdf
+
+    Gamma_hand = (
+        alpha / (2.0 * math.pi**2) *
+        (E_prime / E) *
+        (K / Q2) *
+        1.0 / (1.0 - eps)
+    )
+
+    # d^2σ / dW dQ^2 (μb / GeV^3)
+    d2sigma_dWdQ2 = (
+        GEV2_TO_UB *
+        Gamma_hand *
+        (sigma_T + eps * sigma_L) *
+        (math.pi * W / (M * E * E_prime))
+    )
+
+    return R, sigma_L, sigma_T, d2sigma_dWdQ2, W1_pdf, W2_pdf
+
+
 
 
 
@@ -303,7 +410,7 @@ def get_pdf_xsecs_table(fixed_Q2, beam_energy,
         W_grid = np.sort(np.intersect1d(np.asarray(W_common, dtype=float),np.asarray(W_common_lo, dtype=float)))
 
         
-  
+
 
     # Compute cross sections
     lo_xsec = []
@@ -366,16 +473,17 @@ def get_pdf_xsecs_table(fixed_Q2, beam_energy,
 
 
 
+# Get PDF-based xsec tables for various Q2 and beam energies
 
-get_pdf_xsecs_table(fixed_Q2=2.774, beam_energy=10.6, pdf_set_nlo="CJ15nlo", pdf_set_lo="CJ15lo", W_vals=np.arange(1.07, 2.51, 0.01))
-get_pdf_xsecs_table(fixed_Q2=3.244, beam_energy=10.6, pdf_set_nlo="CJ15nlo", pdf_set_lo="CJ15lo", W_vals=np.arange(1.07, 2.51, 0.01))
-get_pdf_xsecs_table(fixed_Q2=3.793, beam_energy=10.6, pdf_set_nlo="CJ15nlo", pdf_set_lo="CJ15lo", W_vals=np.arange(1.07, 2.51, 0.01))
-get_pdf_xsecs_table(fixed_Q2=4.435, beam_energy=10.6, pdf_set_nlo="CJ15nlo", pdf_set_lo="CJ15lo", W_vals=np.arange(1.07, 2.51, 0.01))
-get_pdf_xsecs_table(fixed_Q2=5.187, beam_energy=10.6, pdf_set_nlo="CJ15nlo", pdf_set_lo="CJ15lo", W_vals=np.arange(1.07, 2.51, 0.01))
-get_pdf_xsecs_table(fixed_Q2=6.065, beam_energy=10.6, pdf_set_nlo="CJ15nlo", pdf_set_lo="CJ15lo", W_vals=np.arange(1.07, 2.51, 0.01))
-get_pdf_xsecs_table(fixed_Q2=7.093, beam_energy=10.6, pdf_set_nlo="CJ15nlo", pdf_set_lo="CJ15lo", W_vals=np.arange(1.07, 2.51, 0.01))
-get_pdf_xsecs_table(fixed_Q2=8.294, beam_energy=10.6, pdf_set_nlo="CJ15nlo", pdf_set_lo="CJ15lo", W_vals=np.arange(1.07, 2.51, 0.01))
-get_pdf_xsecs_table(fixed_Q2=9.699, beam_energy=10.6, pdf_set_nlo="CJ15nlo", pdf_set_lo="CJ15lo", W_vals=np.arange(1.07, 2.26, 0.01))
+#get_pdf_xsecs_table(fixed_Q2=2.774, beam_energy=10.6, pdf_set_nlo="CT18NLO", pdf_set_lo="CT18LO", W_vals=np.arange(1.07, 2.51, 0.01))
+#get_pdf_xsecs_table(fixed_Q2=3.244, beam_energy=10.6, pdf_set_nlo="CT18NLO", pdf_set_lo="CT18LO", W_vals=np.arange(1.07, 2.51, 0.01))
+#get_pdf_xsecs_table(fixed_Q2=3.793, beam_energy=10.6, pdf_set_nlo="CT18NLO", pdf_set_lo="CT18LO", W_vals=np.arange(1.07, 2.51, 0.01))
+#get_pdf_xsecs_table(fixed_Q2=4.435, beam_energy=10.6, pdf_set_nlo="CT18NLO", pdf_set_lo="CT18LO", W_vals=np.arange(1.07, 2.51, 0.01))
+#get_pdf_xsecs_table(fixed_Q2=5.187, beam_energy=10.6, pdf_set_nlo="CT18NLO", pdf_set_lo="CT18LO", W_vals=np.arange(1.07, 2.51, 0.01))
+#get_pdf_xsecs_table(fixed_Q2=6.065, beam_energy=10.6, pdf_set_nlo="CT18NLO", pdf_set_lo="CT18LO", W_vals=np.arange(1.07, 2.51, 0.01))
+#get_pdf_xsecs_table(fixed_Q2=7.093, beam_energy=10.6, pdf_set_nlo="CT18NLO", pdf_set_lo="CT18LO", W_vals=np.arange(1.07, 2.51, 0.01))
+#get_pdf_xsecs_table(fixed_Q2=8.294, beam_energy=10.6, pdf_set_nlo="CT18NLO", pdf_set_lo="CT18LO", W_vals=np.arange(1.07, 2.51, 0.01))
+#get_pdf_xsecs_table(fixed_Q2=9.699, beam_energy=10.6, pdf_set_nlo="CT18NLO", pdf_set_lo="CT18LO", W_vals=np.arange(1.07, 2.26, 0.01))
 #get_pdf_xsecs_table(fixed_Q2=12.0,beam_energy=15.0, pdf_set_nlo="CJ15nlo", pdf_set_lo="CJ15lo", W_vals=np.arange(1.07, 2.51, 0.01))
 #get_pdf_xsecs_table(fixed_Q2=14.0,beam_energy=15.0, pdf_set_nlo="CJ15nlo", pdf_set_lo="CJ15lo", W_vals=np.arange(1.07, 2.51, 0.01))
 #get_pdf_xsecs_table(fixed_Q2=16.0,beam_energy=22.0, pdf_set_nlo="CJ15nlo", pdf_set_lo="CJ15lo", W_vals=np.arange(1.07, 2.51, 0.01))

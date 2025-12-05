@@ -6,8 +6,8 @@ import os
 import pandas as pd
 
 
-from functions_pdf import get_lo_pdf_interpolators, get_nlo_pdf_interpolators, compute_pdf_cross_sections, compute_pdf_cross_sections_from_F2_FL
-from functions_anl_osaka import compute_cross_section_model, compute_1pi_cross_section_model, compute_2pi_cross_section_model
+from functions_pdf import get_lo_pdf_interpolators, get_nlo_pdf_interpolators, compute_pdf_cross_sections, compute_pdf_cross_sections_from_F2_FL, get_R_from_F1F2
+from functions_anl_osaka import compute_cross_section_model, compute_1pi_cross_section_model, compute_2pi_cross_section_model, interpolate_structure_functions
 
 
 
@@ -390,7 +390,7 @@ def compare_xsecs(fixed_Q2, beam_energy, pdf_set_lo, pdf_set_nlo,
                label=f"Q² = {fixed_Q2:.3f} GeV², E = {beam_energy} GeV")]
     
     if have_AO:
-        good_anl_full = np.isfinite(anl_full_xs)
+        good_anl_full = np.isfinite(anl_full_xs) & (W_vals <= 2.0)
         h_model_full, = plt.plot(W_vals[good_anl_full], anl_full_xs[good_anl_full],
                              label="ANL-Osaka full", color="black", ls="solid", lw=2)
         handles.append(h_model_full)
@@ -400,7 +400,7 @@ def compare_xsecs(fixed_Q2, beam_energy, pdf_set_lo, pdf_set_nlo,
                                  color="black", ls="solid", lw=2,
                                  label="ANL-Osaka full (extended)")
             handles.append(h_AO_ext)
-    
+    #
     #if have_AO_1pi:
     #    good_anl_1pi = np.isfinite(anl_onepi_xs)
     #    h_model_1pi, = plt.plot(W_vals[good_anl_1pi], anl_onepi_xs[good_anl_1pi],
@@ -416,7 +416,7 @@ def compare_xsecs(fixed_Q2, beam_energy, pdf_set_lo, pdf_set_nlo,
     #if np.isfinite(pdf_nlo_xs).any():
     #    good_nlo = np.isfinite(pdf_nlo_xs)
     #    h_pdf_nlo_lt, = plt.plot(W_vals[good_nlo], pdf_nlo_xs[good_nlo],
-    #                             label=f"{pdf_set_nlo}: NLO + LT", color="purple", ls="dashdot", lw=2)
+    #                             label=f"{pdf_set_nlo}: NLO + LT", color="green", ls="dashed", lw=2)
     #    handles.append(h_pdf_nlo_lt)
     #    
     #if np.isfinite(pdf_nlo_tmc_xs).any():
@@ -428,7 +428,7 @@ def compare_xsecs(fixed_Q2, beam_energy, pdf_set_lo, pdf_set_nlo,
     if np.isfinite(pdf_nlo_tmc_ht_xs).any():
         good_nlo_tmc_ht = np.isfinite(pdf_nlo_tmc_ht_xs)
         h_pdf_nlo_ht, = plt.plot(W_vals[good_nlo_tmc_ht], pdf_nlo_tmc_ht_xs[good_nlo_tmc_ht],
-                                 label=f"{pdf_set_nlo}: NLO + LT + TMC(OPE) + HT", color="orange", ls="dashed", lw=2)
+                                 label=f"{pdf_set_nlo}: NLO + LT + TMC(OPE) + HT", color="orange", ls="dashdot", lw=2)
         handles.append(h_pdf_nlo_ht)
 
     # NEW curve from (F2, FL)
@@ -450,10 +450,26 @@ def compare_xsecs(fixed_Q2, beam_energy, pdf_set_lo, pdf_set_nlo,
     plt.ylabel(r"$d \sigma / dW dQ^2$ ($\mathrm{\mu bn/GeV^3}$)")
     plt.title(f"Comparison of cross sections at Q²={fixed_Q2} GeV², E={beam_energy} GeV")
     plt.grid(True)
-    plt.xlim(1, W_hi*1.1)
+    if W_cutoff == 2.5:
+        plt.xlim(1, W_cutoff+0.05)
+    elif W_cutoff == 5.0:
+        plt.xlim(1, 4.5)
+    
     if handles:
         plt.legend(handles=handles, loc="lower right", fontsize="small")
+        
+    
+    ax = plt.gca()  # get current axes
 
+    ax.text(
+        0.02, 0.98,                      # (x, y) in axes coordinates
+        f"{pdf_set_nlo}",               # the text
+        transform=ax.transAxes,  
+        fontsize=20,         
+        fontweight="bold",
+        ha="left", va="top",
+    )
+    
     fname = f"{out_dir}/compare_xsecs_Q2={fixed_Q2}_E={beam_energy}_W_max={W_cutoff}.pdf"
     plt.savefig(fname, dpi=300)
     plt.close()
@@ -461,12 +477,310 @@ def compare_xsecs(fixed_Q2, beam_energy, pdf_set_lo, pdf_set_nlo,
 
 
 
+def plot_sigmaLT_and_R_from_F1F2(
+        fixed_Q2,
+        pdf_set_nlo,
+        flag_nlo,
+        beam_energy=10.6,
+        W_cutoff=30,
+        num_points=200
+        ):
+    """
+    Plot sigma_T, sigma_L and R = sigma_L/sigma_T as functions of W
+    using F1, F2 interpolators and your get_R_from_F1F2() helper.
 
-for q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
-    compare_xsecs(fixed_Q2=q2, beam_energy=10.6, pdf_set_lo="CT18LO", pdf_set_nlo="CT18NLO", W_cutoff=2.5)
-    compare_xsecs(fixed_Q2=q2, beam_energy=10.6, pdf_set_lo="CJ15lo", pdf_set_nlo="CJ15nlo", W_cutoff=2.5)
-    compare_xsecs(fixed_Q2=q2, beam_energy=10.6, pdf_set_lo="CT18LO", pdf_set_nlo="CT18NLO", W_cutoff=5)
-    compare_xsecs(fixed_Q2=q2, beam_energy=10.6, pdf_set_lo="CJ15lo", pdf_set_nlo="CJ15nlo", W_cutoff=5)
+    Args:
+        fixed_Q2   (float): Q^2 in GeV^2
+        F1_interp  (callable): F1(W) interpolator
+        F2_interp  (callable): F2(W) interpolator
+        W_min      (float): minimum W (GeV)
+        W_max      (float): maximum W (GeV)
+        num_points (int): number of W points
+        pdf_label  (str): label for legend / filename (e.g. "CT18NLO")
+        out_dir    (str): output directory for the plot
+    """
+
+    out_dir   = f"sigmaLT_R_plots_{pdf_set_nlo}_{flag_nlo}"
+    table_dir = f"sigmaLT_R_tables_{pdf_set_nlo}_{flag_nlo}"
+    os.makedirs(out_dir, exist_ok=True)
+    os.makedirs(table_dir, exist_ok=True)
+
+   
+
+    # Containers
+    sigma_L_list = []
+    sigma_T_list = []
+    R_list       = []
+    xsect_list   = []
+    
+    try:
+        F1_NLO, _, _, F1_NLO_TMC_HT, F2_NLO, _, F2_NLO_TMC_HT, _, _, _, W_nlo_rng = get_nlo_pdf_interpolators(fixed_Q2,pdf_set=pdf_set_nlo)
+        W_nlo_min, W_nlo_max = float(np.min(W_nlo_rng)), float(np.max(W_nlo_rng))
+    except Exception:
+        pass
+    
+     # W grid
+    W_vals = np.linspace(W_nlo_min, W_cutoff, num_points)
+
+    if flag_nlo == "NLO_only":
+        F1 = F1_NLO
+        F2 = F2_NLO
+    elif flag_nlo == "NLO_TMC_HT":
+        F1 = F1_NLO_TMC_HT
+        F2 = F2_NLO_TMC_HT
+        
+    for W in W_vals:
+        R, sigma_L, sigma_T, xsect, _, _ = get_R_from_F1F2(W, fixed_Q2, beam_energy, F1, F2)
+        sigma_L_list.append(sigma_L)
+        sigma_T_list.append(sigma_T)
+        R_list.append(R)
+        xsect_list.append(xsect)
+
+    sigma_L = np.asarray(sigma_L_list)
+    sigma_T = np.asarray(sigma_T_list)
+    R       = np.asarray(R_list)
+    xsect   = np.asarray(xsect_list)
+
+     # ----- Figure with three panels -----
+    fig, axes = plt.subplots(1, 3, figsize=(14, 4), sharex=True)
+    ax_LT, ax_R, ax_xsect = axes
+
+    # 1) Left: sigma_T and sigma_L
+    mask_LT = np.isfinite(sigma_L) & np.isfinite(sigma_T)
+    ax_LT.plot(W_vals[mask_LT], sigma_T[mask_LT], label=r"$\sigma_T$", color="orange")
+    ax_LT.plot(W_vals[mask_LT], sigma_L[mask_LT], label=r"$\sigma_L$", color="blue")
+
+    ax_LT.set_title("$\sigma_L, \sigma_T$")
+    ax_LT.set_xlabel(r"$W\ (\mathrm{GeV})$")
+    ax_LT.set_ylabel(r"$\sigma_{L,T}\ (\mathrm{GeV^{-2}})$")
+    ax_LT.grid(True)
+    ax_LT.legend()
+
+    # Small label in the corner
+    pdf_label = pdf_set_nlo
+    txt = f"$Q^2 = {fixed_Q2} GeV^2$,\n E = {beam_energy} GeV,\n {flag_nlo}, \n"
+    if pdf_label:
+        txt += f"{pdf_label}"
+    ax_LT.text(
+    0.5, 0.95, txt,              # x = center, y = near top
+    transform=ax_LT.transAxes,   # axes coordinates
+    ha="center",                 # horizontal center
+    va="top",                    # text sits just below y=0.98
+    fontsize=9,
+    fontweight="bold",
+    bbox=dict(facecolor="white", alpha=0.8, edgecolor="none"),
+)
+
+    # 2) Middle: R = sigma_L / sigma_T
+    mask_R = np.isfinite(R)
+    ax_R.set_title("R coefficient")
+    ax_R.plot(W_vals[mask_R], R[mask_R], label=r"$R = \sigma_L / \sigma_T$")
+    ax_R.set_xlabel(r"$W\ (\mathrm{GeV})$")
+    ax_R.set_ylabel(r"$R$")
+    ax_R.grid(True)
+    ax_R.legend()
+
+    # 3) Right: d^2σ / dW dQ^2
+    mask_x = np.isfinite(xsect)
+    ax_xsect.plot(W_vals[mask_x], xsect[mask_x],
+                  label=r"$\frac{d^2\sigma}{dW\,dQ^2}$")
+    ax_xsect.set_xlabel(r"$W\ (\mathrm{GeV})$")
+    ax_xsect.set_ylabel(r"$\mathrm{d}^2\sigma / (\mathrm{d}W\,\mathrm{d}Q^2)\ "
+                         r"(\mathrm{\mu b/GeV^3})$")
+    ax_xsect.grid(True)
+    ax_xsect.set_title("Differential cross section from $\sigma_L, \sigma_T$")
+    ax_xsect.legend()
+
+    fig.tight_layout()
+
+    # Save
+    fname = (f"{out_dir}/sigmaLT_R_xsec_Q2={fixed_Q2}_"
+             f"E={beam_energy}_{pdf_label}_{flag_nlo}.pdf")
+    plt.savefig(fname, dpi=300)
+    plt.close(fig)
+    print("Saved →", fname)
+    
+    # ----- Save table: Q2, W, sigma_L, sigma_T, R -----
+    table = np.column_stack([
+        np.full_like(W_vals, fixed_Q2, dtype=float),
+        W_vals,
+        sigma_L,
+        sigma_T,
+        R
+    ])
+    fname_table = (f"{table_dir}/sigmaLT_R_Q2={fixed_Q2}_"
+                   f"{pdf_label}_{flag_nlo}.dat")
+    header = "Q2\tW\tSigma_L(GeV^-2)\tSigma_T(GeV^-2)\tR"
+    np.savetxt(fname_table, table,
+               fmt="%.6e",
+               delimiter="\t",
+               header=header)
+    print("Saved table →", fname_table)
+    
+
+def compare_W1W2_pdf_vs_AO(
+        fixed_Q2,
+        pdf_set_nlo,
+        flag_nlo,
+        beam_energy=10.6,
+        W_cutoff=2.5,
+        num_points=200,
+        anl_file="input_data/wempx.dat"
+    ):
+    """
+    Compare W1, W2 reconstructed from σ_T and R (PDF-based F1,F2)
+    with W1, W2 from the ANL-Osaka model (via interpolate_structure_functions).
+
+    Two-panel plot:
+      left:  W1_pdf vs W and W1_AO vs W
+      right: W2_pdf vs W and W2_AO vs W
+    """
+
+    out_dir = f"compare_W1W2_{pdf_set_nlo}_{flag_nlo}"
+    os.makedirs(out_dir, exist_ok=True)
+
+    # ---- Get W-range from ANL-Osaka table ----
+    data = np.loadtxt(anl_file)
+    W_anl = data[:, 0]
+    Q2_anl = data[:, 1]
+
+    W_anl_min, W_anl_max = W_anl.min(), W_anl.max()
+    Q2_anl_min, Q2_anl_max = Q2_anl.min(), Q2_anl.max()
+
+    if not (Q2_anl_min <= fixed_Q2 <= Q2_anl_max):
+        print(f"[compare_W1W2] Q2={fixed_Q2} outside ANL range "
+              f"[{Q2_anl_min}, {Q2_anl_max}]")
+        return
+
+    # ---- PDF-based F1,F2 interpolators ----
+    (F1_NLO, F1_NLO_TMC, F1_NLO_TMC_alt, F1_NLO_TMC_HT,
+     F2_NLO, F2_NLO_TMC, F2_NLO_TMC_HT,
+     FL_NLO, FL_NLO_TMC, FL_NLO_TMC_HT,
+     W_nlo_rng) = get_nlo_pdf_interpolators(fixed_Q2, pdf_set=pdf_set_nlo)
+
+    W_nlo_min, W_nlo_max = float(np.min(W_nlo_rng)), float(np.max(W_nlo_rng))
+
+    if flag_nlo == "NLO_only":
+        F1 = F1_NLO
+        F2 = F2_NLO
+    elif flag_nlo == "NLO_TMC_HT":
+        F1 = F1_NLO_TMC_HT
+        F2 = F2_NLO_TMC_HT
+    else:
+        print(f"[compare_W1W2] Unknown flag_nlo='{flag_nlo}'")
+        return
+
+    # ---- Common W range ----
+    W_lo = max(W_anl_min, W_nlo_min)
+    W_hi = min(W_anl_max, W_nlo_max, W_cutoff)
+    if W_hi <= W_lo:
+        print("[compare_W1W2] No overlapping W-range between ANL and PDF")
+        return
+
+    W_vals = np.linspace(W_lo, W_hi, num_points)
+
+    # ---- Arrays ----
+    W1_pdf_list, W2_pdf_list = [], []
+    W1_AO_list,  W2_AO_list  = [], []
+
+    for W in W_vals:
+        # PDF: reconstruct W1, W2 from σ_T and R
+        R, sigma_L, sigma_T, xsec, W1_pdf, W2_pdf = get_R_from_F1F2(
+            W, fixed_Q2, beam_energy, F1, F2
+        )
+        W1_pdf_list.append(W1_pdf)
+        W2_pdf_list.append(W2_pdf)
+
+        # ANL-Osaka W1, W2 via your interpolator
+        try:
+            W1_AO, W2_AO = interpolate_structure_functions(
+                anl_file, target_W=W, target_Q2=fixed_Q2
+            )
+        except ValueError as e:
+            # This should not happen if W range was chosen correctly,
+            # but just in case, append NaNs.
+            W1_AO, W2_AO = np.nan, np.nan
+        W1_AO_list.append(W1_AO)
+        W2_AO_list.append(W2_AO)
+
+    W1_pdf = np.asarray(W1_pdf_list)
+    W2_pdf = np.asarray(W2_pdf_list)
+    W1_AO  = np.asarray(W1_AO_list)
+    W2_AO  = np.asarray(W2_AO_list)
+
+    # ---- Plot ----
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4), sharex=True)
+    ax_W1, ax_W2 = axes
+    
+    txt = (rf"$Q^2 = {fixed_Q2:.3f}\,\mathrm{{GeV}}^2$ " rf"$E = {beam_energy:.1f}\,\mathrm{{GeV}}$ " rf"{pdf_set_nlo }, {flag_nlo}")   
+
+    # Left: W1
+    mask1 = np.isfinite(W1_pdf) & np.isfinite(W1_AO)
+    ax_W1.plot(W_vals[mask1], W1_AO[mask1],
+               label="ANL-Osaka $W_1$", color="black")
+    ax_W1.plot(W_vals[mask1], W1_pdf[mask1],
+               label=f"{pdf_set_nlo} ({flag_nlo}) $W_1$", linestyle="--")
+    ax_W1.set_xlabel(r"$W\ (\mathrm{GeV})$")
+    ax_W1.set_ylabel(r"$W_1(Q^2,W)$")
+    ax_W1.set_title(txt)
+    ax_W1.grid(True)
+    ax_W1.legend()
+
+    # Right: W2
+    mask2 = np.isfinite(W2_pdf) & np.isfinite(W2_AO)
+    ax_W2.plot(W_vals[mask2], W2_AO[mask2],
+               label="ANL-Osaka $W_2$", color="black")
+    ax_W2.plot(W_vals[mask2], W2_pdf[mask2],
+               label=f"{pdf_set_nlo} ({flag_nlo}) $W_2$", linestyle="--")
+    ax_W2.set_xlabel(r"$W\ (\mathrm{GeV})$")
+    ax_W2.set_ylabel(r"$W_2(Q^2,W)$")
+    ax_W2.grid(True)
+    ax_W2.legend()
+
+
+
+    fig.tight_layout()
+
+    fname = (f"{out_dir}/compare_W1W2_Q2={fixed_Q2}_"
+             f"E={beam_energy}_{pdf_set_nlo}_{flag_nlo}.png")
+    plt.savefig(fname, dpi=300)
+    plt.close(fig)
+    print("Saved →", fname)
+
+#-----------------------------------------------------------------------------------------------------------
+
+#compare_W1W2_pdf_vs_AO(
+#    fixed_Q2=2.774,
+#    pdf_set_nlo="CJ15nlo",
+#    flag_nlo="NLO_TMC_HT",   # or "NLO_only"
+#    beam_energy=10.6,
+#    W_cutoff=2.5
+#)
+#
+#compare_W1W2_pdf_vs_AO(
+#    fixed_Q2=2.774,
+#    pdf_set_nlo="CJ15nlo",
+#    flag_nlo="NLO_only",   # or "NLO_only"
+#    beam_energy=10.6,
+#    W_cutoff=2.5
+#)
+
+#compare_xsecs(fixed_Q2=2.774, beam_energy=10.6, pdf_set_lo="CJ15nlo", pdf_set_nlo="CJ15nlo", W_cutoff=2.5)
+plot_sigmaLT_and_R_from_F1F2(fixed_Q2=11.25, pdf_set_nlo="CJ15nlo", flag_nlo="NLO_TMC_HT", beam_energy=10.6, W_cutoff=2.5)
+plot_sigmaLT_and_R_from_F1F2(fixed_Q2=12.0, pdf_set_nlo="CJ15nlo", flag_nlo="NLO_TMC_HT", beam_energy=15.0, W_cutoff=2.5)
+plot_sigmaLT_and_R_from_F1F2(fixed_Q2=14.0, pdf_set_nlo="CJ15nlo", flag_nlo="NLO_TMC_HT", beam_energy=15.0, W_cutoff=2.5)
+plot_sigmaLT_and_R_from_F1F2(fixed_Q2=16.0, pdf_set_nlo="CJ15nlo", flag_nlo="NLO_TMC_HT", beam_energy=22.0, W_cutoff=2.5)
+plot_sigmaLT_and_R_from_F1F2(fixed_Q2=18.0, pdf_set_nlo="CJ15nlo", flag_nlo="NLO_TMC_HT", beam_energy=22.0, W_cutoff=2.5)
+plot_sigmaLT_and_R_from_F1F2(fixed_Q2=20.0, pdf_set_nlo="CJ15nlo", flag_nlo="NLO_TMC_HT", beam_energy=22.0, W_cutoff=2.5)
+plot_sigmaLT_and_R_from_F1F2(fixed_Q2=22.5, pdf_set_nlo="CJ15nlo", flag_nlo="NLO_TMC_HT", beam_energy=22.0, W_cutoff=2.5)
+plot_sigmaLT_and_R_from_F1F2(fixed_Q2=25.0, pdf_set_nlo="CJ15nlo", flag_nlo="NLO_TMC_HT", beam_energy=22.0, W_cutoff=2.5)
+plot_sigmaLT_and_R_from_F1F2(fixed_Q2=30.0, pdf_set_nlo="CJ15nlo", flag_nlo="NLO_TMC_HT", beam_energy=22.0, W_cutoff=2.5)
+
+
+#for q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
+#    #compare_xsecs(fixed_Q2=q2, beam_energy=10.6, pdf_set_lo="CT18NLO", pdf_set_nlo="CT18NLO", W_cutoff=2.5)
+#    compare_xsecs(fixed_Q2=q2, beam_energy=10.6, pdf_set_lo="CJ15nlo", pdf_set_nlo="CJ15nlo", W_cutoff=2.5)
+
     
 #compare_F2([1.025,2.025, 2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699, 15.0, 20.0], pdf_set_lo="CJ15lo", pdf_set_nlo="CJ15nlo", W_cutoff=1.8)
 #compare_F2([1.025,2.025, 2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699, 15.0, 20.0],pdf_set="CJ15nlo", W_cutoff=2.5)
@@ -477,6 +791,8 @@ for q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
 
 #compare_F2([2.774], pdf_set_lo="CJ15nlo", pdf_set_nlo="CJ15nlo", W_cutoff=5)
 #compare_F2([2.774], pdf_set_lo="CT18NLO", pdf_set_nlo="CT18NLO", W_cutoff=5)
+
+#compare_F1([2.774,9.699], pdf_set_lo="CJ15lo", pdf_set_nlo="CJ15nlo", W_cutoff=2.5)
 
 
 

@@ -584,4 +584,6 @@ def make_dsigma_dWdQ2_full_vs_1pi_plot(Q2, E_beam):
     return png_path
 
 
-make_dsigma_dWdQ2_full_vs_1pi_plot(2.774, 10.6)
+#make_dsigma_dWdQ2_full_vs_1pi_plot(2.774, 10.6)
+make_sigma_LT_table(2.774)
+
