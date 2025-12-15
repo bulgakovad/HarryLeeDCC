@@ -219,7 +219,6 @@ def compare_F2(Q2_list, pdf_set_lo, pdf_set_nlo, num_points=400, W_cutoff=4.0):
 
         plt.xlabel("W (GeV)")
         plt.ylabel(r"$F_2(W; Q^2)$")
-        plt.ylim(0,0.5)
         plt.grid(True)
         plt.legend(handles=handles, loc="upper left", fontsize="small")
 
@@ -482,7 +481,7 @@ def plot_sigmaLT_and_R_from_F1F2(
         pdf_set_nlo,
         flag_nlo,
         beam_energy=10.6,
-        W_cutoff=30,
+        W_cutoff=2.5,
         num_points=200
         ):
     """
@@ -747,43 +746,103 @@ def compare_W1W2_pdf_vs_AO(
     plt.close(fig)
     print("Saved →", fname)
 
+
+
+
+
+def plot_M2_truncated_vs_Q2(pdf_set, in_dir="../getF1F2/Output/truncated_moments",
+                           out_dir="Moment_vs_Q2"):
+    in_path = os.path.join(in_dir, f"M2_{pdf_set}.txt")
+    if not os.path.isfile(in_path):
+        raise FileNotFoundError(f"Cannot find input file: {in_path}")
+
+    os.makedirs(out_dir, exist_ok=True)
+
+    data = np.loadtxt(in_path)
+    if data.ndim == 1:
+        data = data.reshape(1, -1)
+
+    if data.shape[1] < 11:
+        raise ValueError(f"Expected >= 11 columns in {in_path}, got {data.shape[1]}.")
+
+    Q2 = data[:, 0].astype(float)
+
+    brady = {
+        "1st":  data[:, 1],
+        "2nd":  data[:, 2],
+        "3rd":  data[:, 3],
+        "tail": data[:, 4],
+        "all":  data[:, 5],
+    }
+    naked = {
+        "1st":  data[:, 6],
+        "2nd":  data[:, 7],
+        "3rd":  data[:, 8],
+        "tail": data[:, 9],
+        "all":  data[:, 10],
+    }
+
+    # Sort by Q2 just in case
+    idx = np.argsort(Q2)
+    Q2s = Q2[idx]
+    for k in brady:
+        brady[k] = brady[k][idx]
+        naked[k] = naked[k][idx]
+
+    # -------------------- ### NEW: Wmax info for title --------------------
+    Q2_special = 9.699
+    Wmax_default = 2.5
+    Wmax_special = 2.25
+
+    has_special = np.any(np.isclose(Q2s, Q2_special, rtol=0, atol=1e-6))
+    if has_special:
+        title_suffix = (rf"$W_\max={Wmax_default}\,\mathrm{{GeV}}$ "
+                        rf"(for $Q^2={Q2_special}$: $W_\max={Wmax_special}\,\mathrm{{GeV}}$)")
+    else:
+        title_suffix = rf"$W_\max={Wmax_default}\,\mathrm{{GeV}}$"
+    # ---------------------------------------------------------------------
+
+    region_titles = {
+        "1st":  r"1st resonance region $W \in [1.15, 1.35]$",
+        "2nd":  r"2nd resonance region $W \in [1.45, 1.6]$",
+        "3rd":  r"3rd resonance region $W \in [1.6, 1.85]$",
+        "tail": r"Tail region $W \in [1.85, W_{max}]$",
+        "all":  r"All resonance region $W \in [1.15, W_{max}]$",
+    }
+
+    for region in ["1st", "2nd", "3rd", "tail", "all"]:
+        plt.figure()
+
+        plt.plot(Q2s, naked[region], marker="o", markersize=3, linestyle="-", label="CJ15nlo: NLO+LT")
+        plt.plot(Q2s, brady[region], marker="s", markersize=3, linestyle="-", label="CJ15nlo: NLO+LT+TMC+HT")
+
+    
+
+        plt.xlabel(r"$Q^2\ \mathrm{[GeV^2]}$")
+        plt.ylabel(r"$M_2$ (truncated)")
+        if region in ["all", "tail"]:
+            plt.title(f"{pdf_set}: {region_titles[region]}\n{title_suffix}")
+        else:
+            plt.title(f"{pdf_set}: {region_titles[region]}")
+        plt.grid(True, which="both", alpha=0.3)
+        plt.legend()
+
+        out_path = os.path.join(out_dir, f"M2_vs_Q2_{pdf_set}_{region}.png")
+        plt.tight_layout()
+        plt.savefig(out_path, dpi=200)
+        plt.close()
+
+    print(f"Saved 5 plots to: {out_dir}")
+
+
 #-----------------------------------------------------------------------------------------------------------
 
-#compare_W1W2_pdf_vs_AO(
-#    fixed_Q2=2.774,
-#    pdf_set_nlo="CJ15nlo",
-#    flag_nlo="NLO_TMC_HT",   # or "NLO_only"
-#    beam_energy=10.6,
-#    W_cutoff=2.5
-#)
-#
-#compare_W1W2_pdf_vs_AO(
-#    fixed_Q2=2.774,
-#    pdf_set_nlo="CJ15nlo",
-#    flag_nlo="NLO_only",   # or "NLO_only"
-#    beam_energy=10.6,
-#    W_cutoff=2.5
-#)
+#plot_M2_truncated_vs_Q2(pdf_set="CJ15nlo")
 
-#compare_xsecs(fixed_Q2=2.774, beam_energy=10.6, pdf_set_lo="CJ15nlo", pdf_set_nlo="CJ15nlo", W_cutoff=2.5)
-plot_sigmaLT_and_R_from_F1F2(fixed_Q2=11.25, pdf_set_nlo="CJ15nlo", flag_nlo="NLO_TMC_HT", beam_energy=10.6, W_cutoff=2.5)
-plot_sigmaLT_and_R_from_F1F2(fixed_Q2=12.0, pdf_set_nlo="CJ15nlo", flag_nlo="NLO_TMC_HT", beam_energy=15.0, W_cutoff=2.5)
-plot_sigmaLT_and_R_from_F1F2(fixed_Q2=14.0, pdf_set_nlo="CJ15nlo", flag_nlo="NLO_TMC_HT", beam_energy=15.0, W_cutoff=2.5)
-plot_sigmaLT_and_R_from_F1F2(fixed_Q2=16.0, pdf_set_nlo="CJ15nlo", flag_nlo="NLO_TMC_HT", beam_energy=22.0, W_cutoff=2.5)
-plot_sigmaLT_and_R_from_F1F2(fixed_Q2=18.0, pdf_set_nlo="CJ15nlo", flag_nlo="NLO_TMC_HT", beam_energy=22.0, W_cutoff=2.5)
-plot_sigmaLT_and_R_from_F1F2(fixed_Q2=20.0, pdf_set_nlo="CJ15nlo", flag_nlo="NLO_TMC_HT", beam_energy=22.0, W_cutoff=2.5)
-plot_sigmaLT_and_R_from_F1F2(fixed_Q2=22.5, pdf_set_nlo="CJ15nlo", flag_nlo="NLO_TMC_HT", beam_energy=22.0, W_cutoff=2.5)
-plot_sigmaLT_and_R_from_F1F2(fixed_Q2=25.0, pdf_set_nlo="CJ15nlo", flag_nlo="NLO_TMC_HT", beam_energy=22.0, W_cutoff=2.5)
-plot_sigmaLT_and_R_from_F1F2(fixed_Q2=30.0, pdf_set_nlo="CJ15nlo", flag_nlo="NLO_TMC_HT", beam_energy=22.0, W_cutoff=2.5)
-
-
-#for q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
-#    #compare_xsecs(fixed_Q2=q2, beam_energy=10.6, pdf_set_lo="CT18NLO", pdf_set_nlo="CT18NLO", W_cutoff=2.5)
-#    compare_xsecs(fixed_Q2=q2, beam_energy=10.6, pdf_set_lo="CJ15nlo", pdf_set_nlo="CJ15nlo", W_cutoff=2.5)
 
     
 #compare_F2([1.025,2.025, 2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699, 15.0, 20.0], pdf_set_lo="CJ15lo", pdf_set_nlo="CJ15nlo", W_cutoff=1.8)
-#compare_F2([1.025,2.025, 2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699, 15.0, 20.0],pdf_set="CJ15nlo", W_cutoff=2.5)
+compare_F2([2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699],pdf_set_lo = "CJ15lo", pdf_set_nlo="CJ15nlo", W_cutoff=2.5)
 #compare_F2([1.025,2.025, 2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699, 15.0, 20.0],pdf_set="CJ15nlo", W_cutoff=5.0)
 #compare_F2([1.025,2.025, 2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699, 15.0, 20.0],pdf_set="CJ15nlo", W_cutoff=10.0)
 #compare_F2([1.025,2.025, 2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699, 15.0, 20.0],pdf_set="CJ15nlo", W_cutoff=20.0)

@@ -15,7 +15,7 @@ class IDIS:
         self.CF=4./3.
         self.alfa=1/137.036
         self.M=0.93891897
-        self.mpi=0.139
+        self.mpi=0.13957
         apU=4.0/9.0
         apD=1.0/9.0
         self.couplings={}
