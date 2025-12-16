@@ -8,7 +8,7 @@ import pandas as pd
 
 from functions_pdf import get_lo_pdf_interpolators, get_nlo_pdf_interpolators, compute_pdf_cross_sections, compute_pdf_cross_sections_from_F2_FL, get_R_from_F1F2
 from functions_anl_osaka import compute_cross_section_model, compute_1pi_cross_section_model, compute_2pi_cross_section_model, interpolate_structure_functions
-
+from functions_data import calc_trunc_moment_data
 
 
 def compare_F1(Q2_list, pdf_set_lo, pdf_set_nlo, num_points=400, W_cutoff=4.0):
@@ -748,8 +748,6 @@ def compare_W1W2_pdf_vs_AO(
 
 
 
-
-
 def plot_M2_truncated_vs_Q2(pdf_set, in_dir="../getF1F2/Output/truncated_moments",
                            out_dir="Moment_vs_Q2"):
     in_path = os.path.join(in_dir, f"M2_{pdf_set}.txt")
@@ -782,13 +780,32 @@ def plot_M2_truncated_vs_Q2(pdf_set, in_dir="../getF1F2/Output/truncated_moments
         "all":  data[:, 10],
     }
 
+    # Data
+    regions = ["1st", "2nd", "3rd", "tail", "all"]
+
     # Sort by Q2 just in case
     idx = np.argsort(Q2)
     Q2s = Q2[idx]
     for k in brady:
         brady[k] = brady[k][idx]
         naked[k] = naked[k][idx]
+        
+    # ---- NEW: experimental moments from data ----
+    exp_m2 = {r: np.full_like(Q2s, np.nan, dtype=float) for r in regions}
+    exp_e2 = {r: np.full_like(Q2s, np.nan, dtype=float) for r in regions}
 
+    for i, q2v in enumerate(Q2s):
+        for r in regions:
+            out = calc_trunc_moment_data(q2v, r, n=2).iloc[0]   # n=2 -> M2
+            m  = float(out["moment"])
+            de = float(out["error"])
+
+            # if your calc returns 0 when no overlap, avoid plotting fake zeros
+            if (m == 0.0 and de == 0.0):
+                continue
+
+            exp_m2[r][i] = m
+            exp_e2[r][i] = de
     # -------------------- ### NEW: Wmax info for title --------------------
     Q2_special = 9.699
     Wmax_default = 2.5
@@ -815,15 +832,18 @@ def plot_M2_truncated_vs_Q2(pdf_set, in_dir="../getF1F2/Output/truncated_moments
 
         plt.plot(Q2s, naked[region], marker="o", markersize=3, linestyle="-", label="CJ15nlo: NLO+LT")
         plt.plot(Q2s, brady[region], marker="s", markersize=3, linestyle="-", label="CJ15nlo: NLO+LT+TMC+HT")
-
+        # ---- NEW: experimental points with error bars ----
+        good = np.isfinite(exp_m2[region]) & np.isfinite(exp_e2[region])
+        if np.any(good):
+            plt.errorbar(Q2s[good], exp_m2[region][good], yerr=exp_e2[region][good], color = "black", fmt="o", linestyle="none", markersize=3, capsize=2,label="RGA data (V.Klimenko)")
     
 
         plt.xlabel(r"$Q^2\ \mathrm{[GeV^2]}$")
         plt.ylabel(r"$M_2$ (truncated)")
         if region in ["all", "tail"]:
-            plt.title(f"{pdf_set}: {region_titles[region]}\n{title_suffix}")
+            plt.title(f"{region_titles[region]}\n{title_suffix}")
         else:
-            plt.title(f"{pdf_set}: {region_titles[region]}")
+            plt.title(f"{region_titles[region]}")
         plt.grid(True, which="both", alpha=0.3)
         plt.legend()
 
@@ -837,12 +857,12 @@ def plot_M2_truncated_vs_Q2(pdf_set, in_dir="../getF1F2/Output/truncated_moments
 
 #-----------------------------------------------------------------------------------------------------------
 
-#plot_M2_truncated_vs_Q2(pdf_set="CJ15nlo")
+plot_M2_truncated_vs_Q2(pdf_set="CJ15nlo")
 
 
     
 #compare_F2([1.025,2.025, 2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699, 15.0, 20.0], pdf_set_lo="CJ15lo", pdf_set_nlo="CJ15nlo", W_cutoff=1.8)
-compare_F2([2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699],pdf_set_lo = "CJ15lo", pdf_set_nlo="CJ15nlo", W_cutoff=2.5)
+#compare_F2([2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699],pdf_set_lo = "CJ15lo", pdf_set_nlo="CJ15nlo", W_cutoff=2.5)
 #compare_F2([1.025,2.025, 2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699, 15.0, 20.0],pdf_set="CJ15nlo", W_cutoff=5.0)
 #compare_F2([1.025,2.025, 2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699, 15.0, 20.0],pdf_set="CJ15nlo", W_cutoff=10.0)
 #compare_F2([1.025,2.025, 2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699, 15.0, 20.0],pdf_set="CJ15nlo", W_cutoff=20.0)
