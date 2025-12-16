@@ -748,7 +748,7 @@ def compare_W1W2_pdf_vs_AO(
 
 
 
-def plot_M2_truncated_vs_Q2(pdf_set, in_dir="../getF1F2/Output/truncated_moments",
+def plot_M2_truncated_vs_Q2(pdf_set, error_mode="uncorrelated", in_dir="../getF1F2/Output/truncated_moments",
                            out_dir="Moment_vs_Q2"):
     in_path = os.path.join(in_dir, f"M2_{pdf_set}.txt")
     if not os.path.isfile(in_path):
@@ -796,7 +796,7 @@ def plot_M2_truncated_vs_Q2(pdf_set, in_dir="../getF1F2/Output/truncated_moments
 
     for i, q2v in enumerate(Q2s):
         for r in regions:
-            out = calc_trunc_moment_data(q2v, r, n=2).iloc[0]   # n=2 -> M2
+            out = calc_trunc_moment_data(q2v, r, n=2, error_mode=error_mode).iloc[0]   # n=2 -> M2
             m  = float(out["moment"])
             de = float(out["error"])
 
@@ -835,7 +835,7 @@ def plot_M2_truncated_vs_Q2(pdf_set, in_dir="../getF1F2/Output/truncated_moments
         # ---- NEW: experimental points with error bars ----
         good = np.isfinite(exp_m2[region]) & np.isfinite(exp_e2[region])
         if np.any(good):
-            plt.errorbar(Q2s[good], exp_m2[region][good], yerr=exp_e2[region][good], color = "black", fmt="o", linestyle="none", markersize=3, capsize=2,label="RGA data (V.Klimenko)")
+            plt.errorbar(Q2s[good], exp_m2[region][good], yerr=exp_e2[region][good], color = "black", fmt="o", linestyle="none", markersize=3, capsize=2,label=f"RGA data (V.Klimenko)\n {error_mode} error estimation")
     
 
         plt.xlabel(r"$Q^2\ \mathrm{[GeV^2]}$")
@@ -847,7 +847,7 @@ def plot_M2_truncated_vs_Q2(pdf_set, in_dir="../getF1F2/Output/truncated_moments
         plt.grid(True, which="both", alpha=0.3)
         plt.legend()
 
-        out_path = os.path.join(out_dir, f"M2_vs_Q2_{pdf_set}_{region}.png")
+        out_path = os.path.join(out_dir, f"M2_vs_Q2_{pdf_set}_{region}_error_{error_mode}.pdf")
         plt.tight_layout()
         plt.savefig(out_path, dpi=200)
         plt.close()
@@ -857,7 +857,9 @@ def plot_M2_truncated_vs_Q2(pdf_set, in_dir="../getF1F2/Output/truncated_moments
 
 #-----------------------------------------------------------------------------------------------------------
 
-plot_M2_truncated_vs_Q2(pdf_set="CJ15nlo")
+plot_M2_truncated_vs_Q2(pdf_set="CJ15nlo", error_mode="point_uncorrelated")
+plot_M2_truncated_vs_Q2(pdf_set="CJ15nlo", error_mode="correlated")
+plot_M2_truncated_vs_Q2(pdf_set="CJ15nlo", error_mode="segment_uncorrelated")
 
 
     

@@ -116,7 +116,7 @@ def F2_from_xsect(Q2_value, make_plots = True, show_lines = False, vs_what = "w"
     Wmax1 = 1.35 # end of 1st resonance region
     Wmin2 = 1.45 # start of 2nd resonance region
     Wmax2 = 1.6 # end of 2nd resonance region
-    Wmin3 = 1.61 # CRUTCH for visibility
+    Wmin3 = Wmax2+0.002 # CRUTCH for visibility
     Wmax3 = 1.85 # end of 3rd resonance region
     W_max = 2.5 
     if Q2_value == 9.699:
@@ -127,7 +127,7 @@ def F2_from_xsect(Q2_value, make_plots = True, show_lines = False, vs_what = "w"
     x1 = x_of_W(Wmax1, Q2_value) # W = 1.35 GeV
     xmin2 = x_of_W(Wmin2, Q2_value) # W = 1.45 GeV
     x2 = x_of_W(Wmax2, Q2_value) # W = 1.6 GeV
-    xmin3 = x_of_W(Wmin3, Q2_value) # W = 1.62 GeV CRUTCH for visibility
+    xmin3 = x_of_W(Wmin3, Q2_value) # W = 1.605 GeV CRUTCH for visibility
     x3 = x_of_W(Wmax3, Q2_value) # W = 1.85 GeV
     
     xmin = x_of_W(W_max, Q2_value) # W = 2.5 GeV (2.25 GeV at highest Q2)
@@ -138,6 +138,7 @@ def F2_from_xsect(Q2_value, make_plots = True, show_lines = False, vs_what = "w"
     # -----------------------------
     if make_plots:
         plt.figure(figsize=(7, 5))
+        ax = plt.gca()
         vs = vs_what.lower().strip()
         if vs in ["w", "W"]:
             order = np.argsort(W)
@@ -160,7 +161,7 @@ def F2_from_xsect(Q2_value, make_plots = True, show_lines = False, vs_what = "w"
         if tag == "W" and have_nlo:
             if np.isfinite(F2_NLO_vals).any():
                 good = np.isfinite(F2_NLO_vals)
-                h_naked, = plt.plot(W_vals[good], F2_NLO_vals[good], label=f"{pdf_set_nlo}: NLO + LT", color="green", ls="dashed", lw=1.3)
+                h_naked, = plt.plot(W_vals[good], F2_NLO_vals[good], label=f"{pdf_set_nlo}: NLO + LT", color="magenta", ls="dashed", lw=1.3)
 
             if np.isfinite(F2_NLO_TMC_HT_vals).any():
                 good = np.isfinite(F2_NLO_TMC_HT_vals)
@@ -173,7 +174,7 @@ def F2_from_xsect(Q2_value, make_plots = True, show_lines = False, vs_what = "w"
             good = np.isfinite(F2_NLO_vals) & np.isfinite(x_pdf)
             if good.any():
                 p = np.argsort(x_pdf[good])  # increasing x
-                plt.plot(x_pdf[good][p], F2_NLO_vals[good][p], label=f"{pdf_set_nlo}: NLO + LT", color="green", ls="dashed", lw=1.3)
+                plt.plot(x_pdf[good][p], F2_NLO_vals[good][p], label=f"{pdf_set_nlo}: NLO + LT", color="magenta", ls="dashed", lw=1.3)
 
             # NLO + LT + TMC + HT
             good = np.isfinite(F2_NLO_TMC_HT_vals) & np.isfinite(x_pdf)
@@ -181,6 +182,11 @@ def F2_from_xsect(Q2_value, make_plots = True, show_lines = False, vs_what = "w"
                 p = np.argsort(x_pdf[good])
                 plt.plot(x_pdf[good][p], F2_NLO_TMC_HT_vals[good][p], label=f"{pdf_set_nlo}: NLO + LT + TMC (OPE) + HT",color="orange", ls="solid", lw=1.3)
         if show_lines:
+            y_top = 0.95
+            def label_between(x_left, x_right, txt, color):
+                x_mid = 0.5 * (x_left + x_right)
+                ax.text( x_mid, y_top, txt, transform=ax.get_xaxis_transform(),  # x in data coords, y in axes coords
+                ha="center", va="top", color=color, fontsize=7)
             if tag == "W":
                 ax.axvline(W_min, linestyle="--", linewidth=1, color = "red")
                 ax.axvline(Wmax1, linestyle="--", linewidth=1, color = "red")
@@ -190,6 +196,15 @@ def F2_from_xsect(Q2_value, make_plots = True, show_lines = False, vs_what = "w"
 
                 ax.axvline(Wmin3, linestyle="--", linewidth=1, color = "blue")
                 ax.axvline(Wmax3, linestyle="--", linewidth=1, color = "blue")
+                
+                ax.axvline(W_max, linestyle="--", linewidth=1, color = "black")
+                
+                label_between(W_min,  Wmax1, "1st region",  "red")
+                label_between(Wmin2,  Wmax2, "2nd region",  "green")
+                label_between(Wmin3,  Wmax3, "3rd region",  "blue")
+                label_between(Wmax3,  W_max, "Tail region",  "black")
+                
+                plt.legend(frameon=False, fontsize=7, loc="lower right")
 
             if tag == "x":
                 ax.axvline(xmax, linestyle="--", linewidth=1, color = "red")
@@ -200,34 +215,52 @@ def F2_from_xsect(Q2_value, make_plots = True, show_lines = False, vs_what = "w"
 
                 ax.axvline(xmin3, linestyle="--", linewidth=1, color = "blue")
                 ax.axvline(x3, linestyle="--", linewidth=1, color = "blue")
+                
+                ax.axvline(xmin, linestyle="--", linewidth=1, color = "black")
+                
+                label_between(xmax,  x1,   "1st region", "red")
+                label_between(xmin2, x2,   "2nd region", "green")
+                label_between(xmin3, x3,   "3rd region", "blue")
+                label_between(x3, xmin,   "Tail region", "black")
+                
+                
+                
+                plt.legend(frameon=False, fontsize=7, loc="lower left")
 
-        ax = plt.gca()
+        
         plt.xlabel(xlab)
         plt.ylabel(r"$F_2$")
         plt.title(rf"$F_2$ structure function; $Q^2 = {Q2_value}$ GeV$^2$")
         plt.grid(True)
-        plt.legend(frameon=False, fontsize=10, loc="best")
+        if not show_lines:
+            plt.legend(frameon=False, fontsize=10, loc="best")
         plt.tight_layout()
 
         out_dir = "F2_from_data_plots"
         os.makedirs(out_dir, exist_ok=True)
-        out_png = os.path.join(out_dir, f"F2_Q2={Q2_value}_vs_{tag}.png")
-        plt.savefig(out_png, dpi=200)
+        out_pdf = os.path.join(out_dir, f"F2_Q2={Q2_value}_vs_{tag}_show_lines-{show_lines}.pdf")
+        plt.savefig(out_pdf, dpi=200)
         plt.close()
 
 
-#for Q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]: 
-#    F2_from_xsect(Q2, make_plots=True, vs_what="w")
-#    F2_from_xsect(Q2, make_plots=True, vs_what="x")
+for Q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]: 
+    F2_from_xsect(Q2, make_plots=True, show_lines=True, vs_what="w")
+    F2_from_xsect(Q2, make_plots=True, show_lines=True, vs_what="x")
+    F2_from_xsect(Q2, make_plots=True, show_lines=False, vs_what="w")
+    F2_from_xsect(Q2, make_plots=True, show_lines=False, vs_what="x")
 
  
 
 
-def calc_trunc_moment_data(Q2_value, region, n=2):
+def calc_trunc_moment_data(Q2_value, region, n=2, error_mode="uncorrelated"):
     """
     Truncated Cornwall–Norton moment from data:
         M_n(Q2; region) = ∫_{x_lo}^{x_hi} x^{n-2} F2(x,Q2) dx
     Region is defined via W-bounds, converted to x-bounds at fixed Q2.
+
+    error_mode:
+      - "uncorrelated" (default): uncorrelated trapezoid propagation
+      - "correlated": fully correlated envelope (y -> y ± dy)
 
     Returns DataFrame with: Q2, region, n, x_lo, x_hi, moment, error
     """
@@ -253,12 +286,12 @@ def calc_trunc_moment_data(Q2_value, region, n=2):
     o = np.argsort(x)
     x, F2, dF = x[o], F2[o], dF[o]
 
-    # --- region -> W bounds (edit here if you want different) ---
+    # --- region -> W bounds ---
     W_min_data = 1.15
     Wmax1 = 1.35
     Wmin2 = 1.45
     Wmax2 = 1.60
-    Wmin3 = Wmax2
+    Wmin3 = Wmax2  # No crutch here, use exact boundary
     Wmax3 = 1.85
     W_max = 2.25 if np.isclose(Q2_value, 9.699, atol=1e-3) else 2.50
 
@@ -305,25 +338,45 @@ def calc_trunc_moment_data(Q2_value, region, n=2):
     dF_seg = np.concatenate(([dF_lo], dF[mid], [dF_hi]))
 
     # --- moment integrand and trapezoid integral ---
-    w = x_seg**(n - 2)              # CN weight
-    y = w * F2_seg
+    w  = x_seg**(n - 2)      # CN weight
+    y  = w * F2_seg
     dy = w * dF_seg
 
     moment = float(np.trapz(y, x_seg))
 
-    # --- uncorrelated trapezoid error propagation ---
-    dx = np.diff(x_seg)
-    err2 = np.sum((0.5*dx)**2 * (dy[:-1]**2 + dy[1:]**2))
-    error = float(np.sqrt(err2))
+    # --- error estimate ---
+    mode = str(error_mode).lower().strip()
+    if mode in ["segment_uncorrelated"]:
+        # (keep your existing method unchanged)
+        dx = np.diff(x_seg)
+        err2 = np.sum((0.5*dx)**2 * (dy[:-1]**2 + dy[1:]**2))
+        error = float(np.sqrt(err2))
+    elif mode in ["point_uncorrelated", "points", "pointwise", "wts"]:
+        # Correct for uncorrelated point-to-point errors: Var(I)=sum_k (w_k*dy_k)^2
+        dx = np.diff(x_seg)
+
+        wts = np.zeros_like(x_seg, dtype=float)
+        wts[0] = 0.5 * dx[0]
+        wts[1:-1] = 0.5 * (dx[:-1] + dx[1:])
+        wts[-1] = 0.5 * dx[-1]
+
+        err2 = np.sum((wts * dy)**2)
+        error = float(np.sqrt(err2))
+
+    elif mode in ["correlated", "corr", "c", "envelope"]:
+        # fully correlated envelope: y -> y ± dy
+        I_hi = float(np.trapz(y + dy, x_seg))
+        I_lo = float(np.trapz(y - dy, x_seg))
+        error = 0.5 * (I_hi - I_lo)
+
+    else:
+        raise ValueError("error_mode must be 'uncorrelated' or 'correlated'")
 
     return pd.DataFrame([{
         "Q2": Q2_value, "region": region, "n": n,
         "x_lo": lo, "x_hi": hi,
         "moment": moment, "error": error
     }])
-
-
-
 
 
 
