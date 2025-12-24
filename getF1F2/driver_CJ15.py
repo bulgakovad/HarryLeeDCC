@@ -126,23 +126,26 @@ def mainF2trunc(pdf_set):
   
   for Q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
     print(f"Running for Q2 = {Q2}\n")
-    W_min = 1.15 # now corresponds to data range
-    Wmax1 = 1.35 # end of 1st resonance region
-    Wmin2 = 1.45 # start of 2nd resonance region
-    Wmax2 = 1.6 # end of 2nd resonance region
-    Wmax3 = 1.85 # end of 3rd resonance region
+   # --- region -> W bounds ---
+    W_min_data = 1.15
+    Wmax1 = 1.35
+    Wmin2 = Wmax1
+    Wmax2 = 1.60
+    Wmin3 = Wmax2  
+    Wmax3 = 2.0
     W_max = 2.5 
     if Q2 == 9.699:
       W_max = 2.25
 
-    xmax = x_of_W(W_min, Q2)
+    xmax_data = x_of_W(W_min_data, Q2)
  
-    x1 = x_of_W(Wmax1, Q2) # W = 1.35 GeV
+    xmax1 = x_of_W(Wmax1, Q2) # W = 1.35 GeV
     xmin2 = x_of_W(Wmin2, Q2) # W = 1.45 GeV
-    x2 = x_of_W(Wmax2, Q2) # W = 1.6 GeV
-    x3 = x_of_W(Wmax3, Q2) # W = 1.85 GeV
+    xmax2 = x_of_W(Wmax2, Q2) # W = 1.6 GeV
+    xmin3 = x_of_W(Wmin3, Q2) # W = 1.6 GeV
+    xmax3 = x_of_W(Wmax3, Q2) # W = 1.85 GeV
     
-    xmin = x_of_W(W_max, Q2) # W = 2.5 GeV (2.25 GeV at highest Q2)
+    xmin_data = x_of_W(W_max, Q2) # W = 2.5 GeV (2.25 GeV at highest Q2)
   
     rho = lambda x: (1.0 + 4.0*x**2*M**2/Q2)**0.5
     F2nakedint=lambda x:thy.get_F2(x,Q2,'p')
@@ -160,24 +163,26 @@ def mainF2trunc(pdf_set):
     F2bradyuxht=lambda x: fixed_quad(lambda u: np.vectorize(F2uxint)(x,u),xN(x),1.0,n=10)[0]*(1.+CHT(x)/Q2)
     F2bradyux=lambda x: fixed_quad(lambda u: np.vectorize(F2uxint)(x,u),xN(x),1.0,n=10)[0]
     
-    F2naked1=thy.integrator(F2nakedint,x1,xmax,n=10) # 1st resonance region W: 1.15 - 1.35
-    F2naked2=thy.integrator(F2nakedint,x2,xmin2,n=10)   # 2nd resonance region W: 1.45 - 1.6
-    F2naked3=thy.integrator(F2nakedint,x3,x2,n=10)   # 3rd resonance region W: 1.6 - 1.85
-    F2naked_tail = thy.integrator(F2nakedint,xmin,x3,n=10)   # tail region W: 1.85 - 2.5 (2.25)
-    F2nakedall=thy.integrator(F2nakedint,xmin,xmax,n=10)  # all range W: 1.15 - 2.5 (2.25)
+    F2naked1=thy.integrator(F2nakedint,xmax1,xmax_data,n=10) # 1st resonance region W: 1.15 - 1.35
+    F2naked2=thy.integrator(F2nakedint,xmax2,xmin2,n=10)   # 2nd resonance region W: 1.35 - 1.6
+    F2naked3=thy.integrator(F2nakedint,xmax3,xmin3,n=10)   # 3rd resonance region W: 1.6 - 2.0
+    F2naked_tail = thy.integrator(F2nakedint,xmin_data,xmax3,n=10)  # tail region W: 2.0 - 2.5 (2.25)
+    F2nakedall=thy.integrator(F2nakedint,xmin_data,xmax_data,n=10)  # full resonance regio W: 1.15 - 2.5 (2.25)
+    F2naked_part = thy.integrator(F2nakedint,xmax3,xmax_data,n=10) # partial resonance region W: 1.15 - 2.0
     
-    F2bradyht1=thy.integrator(F2brady0htint,x1,xmax,n=10)+thy.integrator(F2xhtint,x1,xmax,n=10)+fixed_quad(np.vectorize(F2bradyuxht),x1,xmax,n=10)[0]
-    F2bradyht2=thy.integrator(F2brady0htint,x2,xmin2,n=10)+thy.integrator(F2xhtint,x2,xmin2,n=10)+fixed_quad(np.vectorize(F2bradyuxht),x2,xmin2,n=10)[0]
-    F2bradyht3=thy.integrator(F2brady0htint,x3,x2,n=10)+thy.integrator(F2xhtint,x3,x2,n=10)+fixed_quad(np.vectorize(F2bradyuxht),x3,x2,n=10)[0]
-    F2bradyht_tail=thy.integrator(F2brady0htint,xmin,x3,n=10)+thy.integrator(F2xhtint,xmin,x3,n=10)+fixed_quad(np.vectorize(F2bradyuxht),xmin,x3,n=10)[0]
-    F2bradyhtall=thy.integrator(F2brady0htint,xmin,xmax,n=10)+thy.integrator(F2xhtint,xmin,xmax,n=10)+fixed_quad(np.vectorize(F2bradyuxht),xmin,xmax,n=10)[0]
+    F2bradyht1=thy.integrator(F2brady0htint,xmax1,xmax_data,n=10)+thy.integrator(F2xhtint,xmax1,xmax_data,n=10)+fixed_quad(np.vectorize(F2bradyuxht),xmax1,xmax_data,n=10)[0]
+    F2bradyht2=thy.integrator(F2brady0htint,xmax2,xmin2,n=10)+thy.integrator(F2xhtint,xmax2,xmin2,n=10)+fixed_quad(np.vectorize(F2bradyuxht),xmax2,xmin2,n=10)[0]
+    F2bradyht3=thy.integrator(F2brady0htint,xmax3,xmin3,n=10)+thy.integrator(F2xhtint,xmax3,xmin3,n=10)+fixed_quad(np.vectorize(F2bradyuxht),xmax3,xmin3,n=10)[0]
+    F2bradyht_tail=thy.integrator(F2brady0htint,xmin_data,xmax3,n=10)+thy.integrator(F2xhtint,xmin_data,xmax3,n=10)+fixed_quad(np.vectorize(F2bradyuxht),xmin_data,xmax3,n=10)[0]
+    F2bradyhtall=thy.integrator(F2brady0htint,xmin_data,xmax_data,n=10)+thy.integrator(F2xhtint,xmin_data,xmax_data,n=10)+fixed_quad(np.vectorize(F2bradyuxht),xmin_data,xmax_data,n=10)[0]
+    F2bradyht_part=thy.integrator(F2brady0htint,xmax3,xmax_data,n=10)+thy.integrator(F2xhtint,xmax3,xmax_data,n=10)+fixed_quad(np.vectorize(F2bradyuxht),xmax3,xmax_data,n=10)[0]
     
     #F2brady1=thy.integrator(F2brady0int,x1,xmax,n=10)+thy.integrator(F2xint,x1,xmax,n=10)+fixed_quad(np.vectorize(F2bradyux),x1,xmax,n=10)[0]
     #F2brady2=thy.integrator(F2brady0int,x2,x1,n=10)+thy.integrator(F2xint,x2,x1,n=10)+fixed_quad(np.vectorize(F2bradyux),x2,x1,n=10)[0]
     #F2brady3=thy.integrator(F2brady0int,x3,x2,n=10)+thy.integrator(F2xint,x3,x2,n=10)+fixed_quad(np.vectorize(F2bradyux),x3,x2,n=10)[0]
     #F2bradyall=thy.integrator(F2brady0int,xmin,xmax,n=10)+thy.integrator(F2xint,xmin,xmax,n=10)+fixed_quad(np.vectorize(F2bradyux),xmin,xmax,n=10)[0]
     
-    f2.write(str(Q2)+"\t"+str(F2bradyht1)+"\t"+str(F2bradyht2)+"\t"+str(F2bradyht3)+"\t"+str(F2bradyht_tail)+"\t"+str(F2bradyhtall)+"\t"+str(F2naked1)+"\t"+str(F2naked2)+"\t"+str(F2naked3)+"\t"+str(F2naked_tail)+"\t"+str(F2nakedall)+"\n")
+    f2.write(str(Q2)+"\t"+str(F2bradyht1)+"\t"+str(F2bradyht2)+"\t"+str(F2bradyht3)+"\t"+str(F2bradyht_tail)+"\t"+str(F2bradyhtall)+"\t"+str(F2bradyht_part)+"\t"+str(F2naked1)+"\t"+str(F2naked2)+"\t"+str(F2naked3)+"\t"+str(F2naked_tail)+"\t"+str(F2nakedall)+"\t"+str(F2naked_part)+"\n")
     
 
 

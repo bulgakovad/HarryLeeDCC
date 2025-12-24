@@ -2,19 +2,23 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from functions_pdf import  get_nlo_pdf_interpolators
+from functions_anl_osaka import sigma_LT_to_F2_AO_model
 
 from pathlib import Path
 
 import os
 
 
+E_beam = 10.604
+M = 0.9382720813
+alpha = 1/137.035999084
+four_pi2_alpha = 4.0*np.pi**2*alpha
 
-def F2_from_xsect(Q2_value, make_plots = True, show_lines = False, vs_what = "w", pdf_set_nlo="CJ15nlo"):
-    def x_of_W(W,Q2): return Q2 / (W*W - M*M + Q2)
-    E_beam = 10.6
-    M = 0.9382720813
-    alpha = 1/137.035999084
-    four_pi2_alpha = 4.0*np.pi**2*alpha
+def x_of_W(W,Q2): return Q2 / (W*W - M*M + Q2)
+
+
+def F2_from_xsect_data(Q2_value, R_source = "AO"):
+    
 
     # --- read file (headerless) and coerce numerics ---
     in_path = f"exp_data/InclusiveExpValera_Q2={Q2_value}.dat"
@@ -31,7 +35,8 @@ def F2_from_xsect(Q2_value, make_plots = True, show_lines = False, vs_what = "w"
     e_full = np.sqrt(e_stat**2 + e_sys**2)
     
     # R_LT
-    r_path = f"R_LT_tables_from_Yannick/Wdist_Q2_{Q2_value}_GLOBAL_LT.dat"
+    if R_source == "AO":
+        r_path = f"tables_from_Yannick/exp_binning/AO/Wdist_Q2_{Q2_value}_GLOBAL_LT.dat"
 
     r_df = pd.read_csv(r_path, sep=r"\s+", comment="#", header=None)
 
@@ -73,193 +78,21 @@ def F2_from_xsect(Q2_value, make_plots = True, show_lines = False, vs_what = "w"
 
     F2_err = np.sqrt(F2_err_from_sigma**2 + F2_err_from_R**2)
     
-    if make_plots == False:
-        return pd.DataFrame({
-            "W": W,
-            "x": x,
-            "F2": F2,
-            "F2_err": F2_err
-        })
     
-    #------------------------------------PDF predictions----------------------------------------
-    have_nlo = False
-    try:
-          _, _, _, _, F2_NLO, F2_NLO_TMC, F2_NLO_TMC_HT, _, _, _, W_nlo_rng = get_nlo_pdf_interpolators(Q2_value,pdf_set=pdf_set_nlo)
-          W_nlo_min = float(np.min(W_nlo_rng))
-          have_nlo = True
-    except Exception:
-          pass
-      
-    # W grid
-    wmins = []
-    if have_nlo: wmins.append(W_nlo_min)
-    W_min_global = max(1.0, min(wmins)) if wmins else 1.0
-    W_max_global = float(np.max(W))+0.03
-    W_vals = np.linspace(W_min_global, W_max_global, 400)
-    
-     # Evaluate NLO (LT, TMC only, TMC+HT, HT-only)
-    F2_NLO_vals = np.full_like(W_vals, np.nan, dtype=float)
-    F2_NLO_TMC_vals = np.full_like(W_vals, np.nan, dtype=float)
-    F2_NLO_TMC_HT_vals = np.full_like(W_vals, np.nan, dtype=float)
-    if have_nlo:
-        m = (W_vals >= W_nlo_min) & (W_vals <= W_max_global)
-        try: F2_NLO_vals[m]  = F2_NLO(W_vals[m])
-        except Exception: pass
-        try: F2_NLO_TMC_vals[m] = F2_NLO_TMC(W_vals[m])
-        except Exception: pass
-        try: F2_NLO_TMC_HT_vals[m] = F2_NLO_TMC_HT(W_vals[m])
-        except Exception: pass
-    
-    # ---------------------ranges for future integration----------------------------------------
-    
-    W_min = 1.15 # now corresponds to data range
-    Wmax1 = 1.35 # end of 1st resonance region
-    Wmin2 = 1.45 # start of 2nd resonance region
-    Wmax2 = 1.6 # end of 2nd resonance region
-    Wmin3 = Wmax2+0.002 # CRUTCH for visibility
-    Wmax3 = 1.85 # end of 3rd resonance region
-    W_max = 2.5 
-    if Q2_value == 9.699:
-      W_max = 2.25
-
-    xmax = x_of_W(W_min, Q2_value)
- 
-    x1 = x_of_W(Wmax1, Q2_value) # W = 1.35 GeV
-    xmin2 = x_of_W(Wmin2, Q2_value) # W = 1.45 GeV
-    x2 = x_of_W(Wmax2, Q2_value) # W = 1.6 GeV
-    xmin3 = x_of_W(Wmin3, Q2_value) # W = 1.605 GeV CRUTCH for visibility
-    x3 = x_of_W(Wmax3, Q2_value) # W = 1.85 GeV
-    
-    xmin = x_of_W(W_max, Q2_value) # W = 2.5 GeV (2.25 GeV at highest Q2)
-
-    
-        # -----------------------------
-    # Plot (exp points with errors and PDF-based predictions)
-    # -----------------------------
-    if make_plots:
-        plt.figure(figsize=(7, 5))
-        ax = plt.gca()
-        vs = vs_what.lower().strip()
-        if vs in ["w", "W"]:
-            order = np.argsort(W)
-            x_axis = W[order]
-            xlab = r"$W$ [GeV]"
-            tag = "W"
-        elif vs in ["x", "X"]:
-            order = np.argsort(x)  # increasing x
-            x_axis = x[order]
-            xlab = r"$x_{B}$"
-            tag = "x"
-        else:
-            raise ValueError(f"vs_what must be 'w' or 'x' (got '{vs_what}')")
-
-        F2_plot = F2[order]
-        F2e_plot = F2_err[order]
-
-        plt.errorbar(x_axis, F2_plot, yerr=F2e_plot, label="RGA data (V.Klimenko)", color="black", fmt="o", linestyle="none", markersize=2.5, capsize=2)
-
-        if tag == "W" and have_nlo:
-            if np.isfinite(F2_NLO_vals).any():
-                good = np.isfinite(F2_NLO_vals)
-                h_naked, = plt.plot(W_vals[good], F2_NLO_vals[good], label=f"{pdf_set_nlo}: NLO + LT", color="magenta", ls="dashed", lw=1.3)
-
-            if np.isfinite(F2_NLO_TMC_HT_vals).any():
-                good = np.isfinite(F2_NLO_TMC_HT_vals)
-                h_bht, = plt.plot(W_vals[good], F2_NLO_TMC_HT_vals[good], label=f"{pdf_set_nlo}: NLO + LT + TMC (OPE) + HT", color="orange", ls="solid", lw=1.3)
-         # --- PDF curves on x-axis ---
-        if tag == "x" and have_nlo:
-            x_pdf = x_of_W(W_vals, Q2_value)
-
-            # NLO + LT
-            good = np.isfinite(F2_NLO_vals) & np.isfinite(x_pdf)
-            if good.any():
-                p = np.argsort(x_pdf[good])  # increasing x
-                plt.plot(x_pdf[good][p], F2_NLO_vals[good][p], label=f"{pdf_set_nlo}: NLO + LT", color="magenta", ls="dashed", lw=1.3)
-
-            # NLO + LT + TMC + HT
-            good = np.isfinite(F2_NLO_TMC_HT_vals) & np.isfinite(x_pdf)
-            if good.any():
-                p = np.argsort(x_pdf[good])
-                plt.plot(x_pdf[good][p], F2_NLO_TMC_HT_vals[good][p], label=f"{pdf_set_nlo}: NLO + LT + TMC (OPE) + HT",color="orange", ls="solid", lw=1.3)
-        if show_lines:
-            y_top = 0.95
-            def label_between(x_left, x_right, txt, color):
-                x_mid = 0.5 * (x_left + x_right)
-                ax.text( x_mid, y_top, txt, transform=ax.get_xaxis_transform(),  # x in data coords, y in axes coords
-                ha="center", va="top", color=color, fontsize=7)
-            if tag == "W":
-                ax.axvline(W_min, linestyle="--", linewidth=1, color = "red")
-                ax.axvline(Wmax1, linestyle="--", linewidth=1, color = "red")
-
-                ax.axvline(Wmin2, linestyle="--", linewidth=1, color = "green")
-                ax.axvline(Wmax2, linestyle="--", linewidth=1, color = "green")
-
-                ax.axvline(Wmin3, linestyle="--", linewidth=1, color = "blue")
-                ax.axvline(Wmax3, linestyle="--", linewidth=1, color = "blue")
-                
-                ax.axvline(W_max, linestyle="--", linewidth=1, color = "black")
-                
-                label_between(W_min,  Wmax1, "1st region",  "red")
-                label_between(Wmin2,  Wmax2, "2nd region",  "green")
-                label_between(Wmin3,  Wmax3, "3rd region",  "blue")
-                label_between(Wmax3,  W_max, "Tail region",  "black")
-                
-                plt.legend(frameon=False, fontsize=7, loc="lower right")
-
-            if tag == "x":
-                ax.axvline(xmax, linestyle="--", linewidth=1, color = "red")
-                ax.axvline(x1, linestyle="--", linewidth=1, color = "red")
-
-                ax.axvline(xmin2, linestyle="--", linewidth=1, color = "green")
-                ax.axvline(x2, linestyle="--", linewidth=1, color = "green")
-
-                ax.axvline(xmin3, linestyle="--", linewidth=1, color = "blue")
-                ax.axvline(x3, linestyle="--", linewidth=1, color = "blue")
-                
-                ax.axvline(xmin, linestyle="--", linewidth=1, color = "black")
-                
-                label_between(xmax,  x1,   "1st region", "red")
-                label_between(xmin2, x2,   "2nd region", "green")
-                label_between(xmin3, x3,   "3rd region", "blue")
-                label_between(x3, xmin,   "Tail region", "black")
-                
-                
-                
-                plt.legend(frameon=False, fontsize=7, loc="lower left")
-
-        
-        plt.xlabel(xlab)
-        plt.ylabel(r"$F_2$")
-        plt.title(rf"$F_2$ structure function; $Q^2 = {Q2_value}$ GeV$^2$")
-        plt.grid(True)
-        if not show_lines:
-            plt.legend(frameon=False, fontsize=10, loc="best")
-        plt.tight_layout()
-
-        out_dir = "F2_from_data_plots"
-        os.makedirs(out_dir, exist_ok=True)
-        out_pdf = os.path.join(out_dir, f"F2_Q2={Q2_value}_vs_{tag}_show_lines-{show_lines}.pdf")
-        plt.savefig(out_pdf, dpi=200)
-        plt.close()
+    return pd.DataFrame({"W": W, "x": x, "F2": F2, "F2_err": F2_err})
 
 
-for Q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]: 
-    F2_from_xsect(Q2, make_plots=True, show_lines=True, vs_what="w")
-    F2_from_xsect(Q2, make_plots=True, show_lines=True, vs_what="x")
-    F2_from_xsect(Q2, make_plots=True, show_lines=False, vs_what="w")
-    F2_from_xsect(Q2, make_plots=True, show_lines=False, vs_what="x")
-
- 
 
 
-def calc_trunc_moment_data(Q2_value, region, n=2, error_mode="uncorrelated"):
+def calc_trunc_moment_data(Q2_value, region, n=2, error_mode="correlated"):
     """
     Truncated Cornwall–Norton moment from data:
         M_n(Q2; region) = ∫_{x_lo}^{x_hi} x^{n-2} F2(x,Q2) dx
     Region is defined via W-bounds, converted to x-bounds at fixed Q2.
 
     error_mode:
-      - "uncorrelated" (default): uncorrelated trapezoid propagation
+      - "segment_uncorrelated" : uncorrelated trapezoid propagation
+      - "point_uncorrelated": uncorrelated pointwise propagation 
       - "correlated": fully correlated envelope (y -> y ± dy)
 
     Returns DataFrame with: Q2, region, n, x_lo, x_hi, moment, error
@@ -268,7 +101,7 @@ def calc_trunc_moment_data(Q2_value, region, n=2, error_mode="uncorrelated"):
     M = 0.9382720813
 
     # --- get data (x, F2, dF2) ---
-    df = F2_from_xsect(Q2_value, make_plots=False, vs_what="x")
+    df = F2_from_xsect_data(Q2_value)
     x  = df["x"].to_numpy(dtype=float)
     F2 = df["F2"].to_numpy(dtype=float)
     dF = df["F2_err"].to_numpy(dtype=float)
@@ -289,10 +122,10 @@ def calc_trunc_moment_data(Q2_value, region, n=2, error_mode="uncorrelated"):
     # --- region -> W bounds ---
     W_min_data = 1.15
     Wmax1 = 1.35
-    Wmin2 = 1.45
+    Wmin2 = Wmax1
     Wmax2 = 1.60
     Wmin3 = Wmax2  # No crutch here, use exact boundary
-    Wmax3 = 1.85
+    Wmax3 = 2.0
     W_max = 2.25 if np.isclose(Q2_value, 9.699, atol=1e-3) else 2.50
 
     reg = str(region).lower().strip()
@@ -300,9 +133,9 @@ def calc_trunc_moment_data(Q2_value, region, n=2, error_mode="uncorrelated"):
         "1": (W_min_data, Wmax1), "r1": (W_min_data, Wmax1), "first": (W_min_data, Wmax1), "1st": (W_min_data, Wmax1),
         "2": (Wmin2, Wmax2),      "r2": (Wmin2, Wmax2),      "second": (Wmin2, Wmax2),      "2nd": (Wmin2, Wmax2),
         "3": (Wmin3, Wmax3),      "r3": (Wmin3, Wmax3),      "third": (Wmin3, Wmax3),       "3rd": (Wmin3, Wmax3),
-        "res": (W_min_data, Wmax3), "resonance": (W_min_data, Wmax3),
+        "partial": (W_min_data, Wmax3), "part": (W_min_data, Wmax3),
         "tail": (Wmax3, W_max),
-        "all": (W_min_data, W_max), "total": (W_min_data, W_max)
+        "full": (W_min_data, W_max), "all": (W_min_data, W_max),
     }
     if reg not in region_map:
         raise ValueError(f"Unknown region='{region}'. Use one of: {sorted(region_map.keys())}")
@@ -377,8 +210,6 @@ def calc_trunc_moment_data(Q2_value, region, n=2, error_mode="uncorrelated"):
         "x_lo": lo, "x_hi": hi,
         "moment": moment, "error": error
     }])
-
-
 
 
 
@@ -463,4 +294,86 @@ def plot_epsilon_vs_W_grid(
     return results
 
 
+def calculate_epsilon_valerii(Q2_value):
+    Q2 = float(Q2_value)
+    q2_tag = str(Q2_value)
+    data_path = "exp_data"
+    filename = f"InclusiveExpValera_Q2={q2_tag}.dat"
+    in_path = os.path.join(data_path, filename)
+    if not os.path.isfile(in_path):
+        raise FileNotFoundError(f"Cannot find input file: {in_path}")
 
+    data = np.loadtxt(in_path, skiprows=1)
+    W = data[:, 0]
+    eps = data[:, 1]
+    sigma = data[:, 2]
+    error = data[:, 3]
+    sys_error = data[:, 4]
+    
+    #---
+    # kinematics needed for epsilon & Gamma
+    nu = (W**2 + Q2 - M**2) / (2.0 * M)
+    Eprime = E_beam - nu
+
+    # theta from Q2 = 4 E E' sin^2(theta/2)
+    sin2 = Q2 / (4.0 * E_beam * Eprime)
+
+    tan2 = sin2 / (1.0 - sin2)
+
+    my_eps = 1.0 / (1.0 + 2.0 * (1.0 + (nu**2)/Q2) * tan2)
+    
+    df = pd.DataFrame({"W": W, "sigma": sigma, "error": error, "sys_error": sys_error, "eps": eps, "my_eps": my_eps})
+    
+    out_dir = "checking_epsilon/"
+    os.makedirs(out_dir, exist_ok=True)
+    out_filename = out_dir + filename + "_TEST_EPSILON.csv"
+    df.to_csv(out_filename, sep="\t", index=False)
+
+
+    print(df)
+
+def calculate_epsilon_yannick(Q2_value):
+    Q2 = float(Q2_value)
+    q2_tag = str(Q2_value)
+    data_path = "tables_from_Yannick/fine_binning/AO/"
+    filename = f"Wdist_Q2_{q2_tag}_GLOBAL_LT.dat"
+    in_path = os.path.join(data_path, filename)
+    if not os.path.isfile(in_path):
+        raise FileNotFoundError(f"Cannot find input file: {in_path}")
+
+    data = np.loadtxt(in_path, skiprows=1)
+    W = data[:, 0]
+    sigma_tot = data[:, 1]
+    sigma_T = data[:, 2]
+    eps_sigma_L = data[:, 3]
+    sigma_L = data[:, 4]
+    R_LT = data[:, 5]
+    dR_LT = data[:, 6]
+    
+    #New column
+    yannick_eps = eps_sigma_L / sigma_L
+
+    #---
+    # kinematics needed for epsilon & Gamma
+    nu = (W**2 + Q2 - M**2) / (2.0 * M)
+    Eprime = E_beam - nu
+
+    # theta from Q2 = 4 E E' sin^2(theta/2)
+    sin2 = Q2 / (4.0 * E_beam * Eprime)
+
+    tan2 = sin2 / (1.0 - sin2)
+
+    my_eps = 1.0 / (1.0 + 2.0 * (1.0 + (nu**2)/Q2) * tan2)
+
+    df = pd.DataFrame({"W": W,  "eps_sigma_L": eps_sigma_L, "sigma_L": sigma_L, "yannick_eps = eps_sigma_L / sigma_L": yannick_eps, "my_eps": my_eps})
+
+    out_dir = "checking_epsilon/"
+    os.makedirs(out_dir, exist_ok=True)
+    out_filename = out_dir + filename + "_TEST_EPSILON.csv"
+    df.to_csv(out_filename, sep="\t", index=False)
+
+
+    print(df.head(50))
+
+calculate_epsilon_yannick(2.774)
+calculate_epsilon_valerii(2.774)

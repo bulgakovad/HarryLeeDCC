@@ -392,6 +392,109 @@ def make_sigma_LT_table(Q2):
     plt.tight_layout()
     plt.savefig(png_path, dpi=200)
     plt.close()
+    
+    
+
+
+def sigma_LT_to_F2_AO_model(fixed_Q2,
+                            W_out=None,
+                            E_beam=10.6,
+                            in_dir="tables_from_Yannick/fine_binning/AO",
+                            convert_ub_to_GeV2=True,
+                            divide_by_Gamma=True):
+    """
+    Reads:
+      tables_from_Yannick/fine_binning/AO/Wdist_Q2_{fixed_Q2}_GLOBAL_LT.dat
+    Skips header: 1 line
+
+    Takes columns (0-based):
+      W                 = col 0
+      (Gamma*sigma_T)   = col 2
+      (Gamma*sigma_L)   = col 4   # sigma_L(no-epsilon)
+
+    If divide_by_Gamma=True:
+      sigma_T = (Gamma*sigma_T)/Gamma
+      sigma_L = (Gamma*sigma_L)/Gamma
+    where:
+      epsilon = [1 + 2(1 + nu^2/Q2) tan^2(theta/2)]^{-1}
+      Gamma   = alpha*E'*(W^2 - M^2)/(4*pi^2*Q2*M*E*(1-epsilon))
+
+    Then computes:
+      F2 = (K*M/(4*pi^2*alpha)) * (2x/rho^2) * (sigma_T + sigma_L)
+      K = (W^2 - M^2)/(2M)
+      x = Q2/(W^2 - M^2 + Q2)
+      rho^2 = 1 + 4*M^2*x^2/Q2
+
+    Returns:
+      (W, F2) on native grid, or (W_out, F2_interp) if W_out provided.
+    """
+
+    Q2 = float(fixed_Q2)
+    q2_tag = str(fixed_Q2)
+    in_path = os.path.join(in_dir, f"Wdist_Q2_{q2_tag}_GLOBAL_LT.dat")
+    if not os.path.isfile(in_path):
+        raise FileNotFoundError(f"Cannot find input file: {in_path}")
+
+    data = np.loadtxt(in_path, skiprows=1)
+
+    W = data[:, 0]
+    sigT_raw = data[:, 2]  # Gamma*sigma_T  
+    sigL_raw = data[:, 4]  # Gamma*sigma_L  
+
+    # constants
+    M = 0.9382720813
+    alpha = 1.0 / 137.035999084
+
+    # kinematics needed for epsilon & Gamma
+    nu = (W**2 + Q2 - M**2) / (2.0 * M)
+    Eprime = E_beam - nu
+
+    # protect against unphysical points (Eprime<=0 or sin^2>=1)
+    F2 = np.full_like(W, np.nan, dtype=float)
+
+
+
+    # theta from Q2 = 4 E E' sin^2(theta/2)
+    sin2 = Q2 / (4.0 * E_beam * Eprime)
+
+
+    tan2 = sin2 / (1.0 - sin2)
+
+    eps = 1.0 / (1.0 + 2.0 * (1.0 + (nu**2)/Q2) * tan2)
+
+    # virtual photon flux Gamma (your screenshot form)
+    Gamma = (alpha * Eprime * (W**2 - M**2)) / (4.0 * np.pi**2 * Q2 * M * E_beam * (1.0 - eps))
+    
+    # Jacobian J 
+    J = (W * np.pi) / (M * E_beam * Eprime)
+    
+
+    if divide_by_Gamma:
+        sigT = sigT_raw / (Gamma*J)
+        sigL = sigL_raw / (Gamma*J)
+    else:
+        sigT = sigT_raw
+        sigL = sigL_raw
+
+    # ub -> GeV^-2 if needed
+    if convert_ub_to_GeV2:
+        sigT = sigT / GEV2_TO_UB
+        sigL = sigL / GEV2_TO_UB
+
+    # F2 ingredients
+    K = (W**2 - M**2) / (2.0 * M)
+    x = Q2 / (W**2 - M**2 + Q2)
+    rho2 = 1.0 + (4.0 * M**2 * x**2) / Q2
+    pref = (K * M) / (4.0 * np.pi**2 * alpha)
+    F2 = pref * (2.0 * x / rho2) * (sigT + sigL)
+
+    if W_out is None:
+        return W, F2
+
+    W_out = np.asarray(W_out, dtype=float)
+    # no extrapolation beyond AO coverage
+    F2_out = np.interp(W_out, W, F2, left=np.nan, right=np.nan)
+    return W_out, F2_out
 
 
 
