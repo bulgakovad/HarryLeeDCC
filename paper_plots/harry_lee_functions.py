@@ -7,7 +7,7 @@ import pandas as pd
 
 
 from functions_pdf import get_lo_pdf_interpolators, get_nlo_pdf_interpolators, compute_pdf_cross_sections, compute_pdf_cross_sections_from_F2_FL, get_R_from_F1F2
-from functions_anl_osaka import compute_cross_section_model, compute_1pi_cross_section_model, compute_2pi_cross_section_model, interpolate_structure_functions, sigma_LT_to_F2_AO_model
+from functions_anl_osaka import compute_cross_section_model, compute_1pi_cross_section_model, compute_2pi_cross_section_model, interpolate_structure_functions, sigma_LT_to_F2_AO_model, calculate_moment_AO_model
 from functions_data import calc_trunc_moment_data, F2_from_xsect_data, x_of_W
 
 
@@ -413,12 +413,12 @@ def compare_xsecs(fixed_Q2, beam_energy, pdf_set_lo, pdf_set_nlo,
                              label=f"{pdf_set_lo}: LO + LT", color="blue", ls="dotted", lw=2)
         handles.append(h_pdf_lo)
 #
-    #if np.isfinite(pdf_nlo_xs).any():
-    #    good_nlo = np.isfinite(pdf_nlo_xs)
-    #    h_pdf_nlo_lt, = plt.plot(W_vals[good_nlo], pdf_nlo_xs[good_nlo],
-    #                             label=f"{pdf_set_nlo}: NLO + LT", color="green", ls="dashed", lw=2)
-    #    handles.append(h_pdf_nlo_lt)
-    #    
+    if np.isfinite(pdf_nlo_xs).any():
+        good_nlo = np.isfinite(pdf_nlo_xs)
+        h_pdf_nlo_lt, = plt.plot(W_vals[good_nlo], pdf_nlo_xs[good_nlo],
+                                 label=f"{pdf_set_nlo}: NLO + LT", color="green", ls="dashed", lw=2)
+        handles.append(h_pdf_nlo_lt)
+        
     #if np.isfinite(pdf_nlo_tmc_xs).any():
     #    good_nlo_tmc = np.isfinite(pdf_nlo_tmc_xs)
     #    h_pdf_nlo_tmc, = plt.plot(W_vals[good_nlo_tmc], pdf_nlo_tmc_xs[good_nlo_tmc],
@@ -751,9 +751,11 @@ def compare_W1W2_pdf_vs_AO(
     
     
 
-def plot_F2_data_AO_PDF(Q2_value, R_source = "AO", show_lines = False, vs_what = "w", pdf_set_nlo="CJ15nlo"):
+def plot_F2_data_AO_PDF(Q2_value, show_lines = False, vs_what = "w", pdf_set_nlo="CJ15nlo"):
+    
      # ----------------------------- data (exp) -----------------------------
-    df_data = F2_from_xsect_data(Q2_value)
+    R_source = "AO"
+    df_data = F2_from_xsect_data(Q2_value,R_source=R_source)
     W = df_data["W"].to_numpy()
     x = df_data["x"].to_numpy()
     F2 = df_data["F2"].to_numpy()
@@ -798,12 +800,12 @@ def plot_F2_data_AO_PDF(Q2_value, R_source = "AO", show_lines = False, vs_what =
     except Exception:
         pass
     
-    # ---------------------ranges for future integration----------------------------------------
+    # ---------------------ranges for future integration ()----------------------------------------
     W_min = 1.15 # now corresponds to data range
     Wmax1 = 1.35 # end of 1st resonance region
-    Wmin2 = Wmax1+0.005 # start of 2nd resonance region
+    Wmin2 = Wmax1+0.004 # CRUTCH for visibility 
     Wmax2 = 1.6 # end of 2nd resonance region
-    Wmin3 = Wmax2+0.005 # CRUTCH for visibility
+    Wmin3 = Wmax2+0.004 # CRUTCH for visibility
     Wmax3 = 2.0 # end of 3rd resonance region
     W_max = 2.5 
     if Q2_value == 9.699:
@@ -915,7 +917,7 @@ def plot_F2_data_AO_PDF(Q2_value, R_source = "AO", show_lines = False, vs_what =
     
     
 
-def plot_M2_truncated_vs_Q2(pdf_set, error_mode="uncorrelated", in_dir="../getF1F2/Output/truncated_moments",
+def plot_M2_truncated_vs_Q2(pdf_set, error_mode="correlated", in_dir="../getF1F2/Output/truncated_moments",
                            out_dir="Moment_vs_Q2"):
     in_path = os.path.join(in_dir, f"M2_{pdf_set}.txt")
     if not os.path.isfile(in_path):
@@ -965,7 +967,7 @@ def plot_M2_truncated_vs_Q2(pdf_set, error_mode="uncorrelated", in_dir="../getF1
 
     for i, q2v in enumerate(Q2s):
         for r in regions:
-            out = calc_trunc_moment_data(q2v, r, n=2, error_mode=error_mode).iloc[0]   # n=2 -> M2
+            out = calc_trunc_moment_data(q2v, r,R_source="AO", n=2, error_mode=error_mode).iloc[0]   # n=2 -> M2
             m  = float(out["moment"])
             de = float(out["error"])
 
@@ -975,6 +977,24 @@ def plot_M2_truncated_vs_Q2(pdf_set, error_mode="uncorrelated", in_dir="../getF1
 
             exp_m2[r][i] = m
             exp_e2[r][i] = de
+    # ------------------------- NEW: AO model moments -----------------------------
+    ao_m2 = {r: np.full_like(Q2s, np.nan, dtype=float) for r in regions}
+
+    for i, q2v in enumerate(Q2s):
+        for r in regions:
+            out_ao = calculate_moment_AO_model(
+                q2v, r, n=2,
+                E_beam=10.6,
+                in_dir="tables_from_Yannick/fine_binning/AO",
+                convert_ub_to_GeV2=True,
+                divide_by_Gamma=True
+            ).iloc[0]
+
+            m_ao = float(out_ao["moment"])
+            if m_ao == 0.0:
+                continue
+            ao_m2[r][i] = m_ao
+
     # -------------------- ### NEW: Wmax info for title --------------------
     Q2_special = 9.699
     Wmax_default = 2.5
@@ -999,13 +1019,19 @@ def plot_M2_truncated_vs_Q2(pdf_set, error_mode="uncorrelated", in_dir="../getF1
 
     for region in ["1st", "2nd", "3rd", "tail", "part", "all"]:
         plt.figure()
+         # -------------------------  AO model prediction ---------------------
+        good_ao = np.isfinite(ao_m2[region])
+        if np.any(good_ao):
+            plt.plot(Q2s[good_ao], ao_m2[region][good_ao], color="red",marker="o", linestyle="none", markersize=3, label="AO model")
+        
+        #--------------------PDF-based  prediction--------------------
 
-        plt.plot(Q2s, naked[region], marker="o", markersize=3, linestyle="-", label="CJ15nlo: NLO+LT")
-        plt.plot(Q2s, brady[region], marker="s", markersize=3, linestyle="-", label="CJ15nlo: NLO+LT+TMC+HT")
+        plt.plot(Q2s, naked[region], marker="^", markersize=3, linestyle="-",color = "green", label="CJ15nlo: NLO+LT")
+        plt.plot(Q2s, brady[region], marker="s", markersize=3, linestyle="-",color = "orange", label="CJ15nlo: NLO+LT+TMC+HT")
         # ---- NEW: experimental points with error bars ----
         good = np.isfinite(exp_m2[region]) & np.isfinite(exp_e2[region])
         if np.any(good):
-            plt.errorbar(Q2s[good], exp_m2[region][good], yerr=exp_e2[region][good], color = "black", fmt="o", linestyle="none", markersize=3, capsize=2,label=f"RGA data (V.Klimenko)\n {error_mode} error estimation")
+            plt.errorbar(Q2s[good], exp_m2[region][good], yerr=exp_e2[region][good], color = "black", fmt="o", linestyle="none", markersize=3, capsize=2,label=f"RGA data (V.Klimenko)\n R_LT from AO model \n{error_mode} error estimation")
     
 
         plt.xlabel(r"$Q^2\ \mathrm{[GeV^2]}$")
@@ -1021,18 +1047,73 @@ def plot_M2_truncated_vs_Q2(pdf_set, error_mode="uncorrelated", in_dir="../getF1
         plt.tight_layout()
         plt.savefig(out_path, dpi=200)
         plt.close()
+        
+       
 
-    print(f"Saved 5 plots to: {out_dir}")
+        
+        # ---- NEW: RATIO plot (CJ15 NLO+LT+TMC+HT) / data   Will delete later----
+        good_ratio = (
+            np.isfinite(exp_m2[region]) &
+            np.isfinite(exp_e2[region]) &
+            np.isfinite(brady[region]) &
+            (exp_m2[region] != 0.0)
+        )
+
+        if np.any(good_ratio):
+            ratio = brady[region][good_ratio] / exp_m2[region][good_ratio]
+
+            # propagate ONLY data uncertainty (theory treated as exact here)
+            ratio_err = np.abs(ratio) * (exp_e2[region][good_ratio] / np.abs(exp_m2[region][good_ratio]))
+
+            plt.figure()
+            plt.errorbar(Q2s[good_ratio], ratio, yerr=ratio_err,
+                         fmt="o", linestyle="none", markersize=3, capsize=2,
+                         color="black",
+                         label="(CJ15 + soft corr) / data")
+            plt.axhline(1.0, linestyle="--", linewidth=1)
+
+            plt.xlabel(r"$Q^2\ \mathrm{[GeV^2]}$")
+            plt.ylabel(r"$M_2^{\mathrm{CJ15}} / M_2^{\mathrm{data}}$")
+            if region in ["all", "tail"]:
+                plt.title(f"Ratio: {region_titles[region]}\n{title_suffix}")
+            else:
+                plt.title(f"Ratio: {region_titles[region]}")
+
+            plt.grid(True, which="both", alpha=0.3)
+            plt.legend()
+
+            out_path_ratio = os.path.join(
+                out_dir,
+                f"M2_ratio_CJ15TMCHT_over_data_{pdf_set}_{region}_error_{error_mode}.pdf"
+            )
+            ax = plt.gca()
+            text = (r"$Ratio=\frac{CJ15}{Data}$" "\n"
+                    r"$\sigma_{Ratio} = |Ratio|\cdot \frac{\sigma_{Data}}{Data}$" "\n"
+                    r"(data err only)")
+            ax.text(0.02, 0.02, text,
+            transform=ax.transAxes,   # <-- axes coords (0..1)
+            va="bottom", ha="left",
+            fontsize=10,
+            bbox=dict(boxstyle="round,pad=0.25", alpha=0.8))
+
+            plt.tight_layout()
+            plt.savefig(out_path_ratio, dpi=200)
+            plt.close()
+
+
+    print(f"Saved to: {out_dir}")
 
 
 #-----------------------------------------------------------------------------------------------------------
 for Q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
+    plot_F2_data_AO_PDF(Q2_value=Q2, show_lines = True, vs_what = "x", pdf_set_nlo="CJ15nlo")
+    plot_F2_data_AO_PDF(Q2_value=Q2, show_lines = True, vs_what = "w", pdf_set_nlo="CJ15nlo")
     plot_F2_data_AO_PDF(Q2_value=Q2, show_lines = False, vs_what = "x", pdf_set_nlo="CJ15nlo")
     plot_F2_data_AO_PDF(Q2_value=Q2, show_lines = False, vs_what = "w", pdf_set_nlo="CJ15nlo")
 
 
 #plot_M2_truncated_vs_Q2(pdf_set="CJ15nlo", error_mode="point_uncorrelated")
-plot_M2_truncated_vs_Q2(pdf_set="CJ15nlo", error_mode="correlated")
+#plot_M2_truncated_vs_Q2(pdf_set="CJ15nlo", error_mode="correlated")
 #plot_M2_truncated_vs_Q2(pdf_set="CJ15nlo", error_mode="segment_uncorrelated")
 
 

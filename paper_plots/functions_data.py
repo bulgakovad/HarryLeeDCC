@@ -17,7 +17,7 @@ four_pi2_alpha = 4.0*np.pi**2*alpha
 def x_of_W(W,Q2): return Q2 / (W*W - M*M + Q2)
 
 
-def F2_from_xsect_data(Q2_value, R_source = "AO"):
+def F2_from_xsect_data(Q2_value, R_source):
     
 
     # --- read file (headerless) and coerce numerics ---
@@ -37,6 +37,12 @@ def F2_from_xsect_data(Q2_value, R_source = "AO"):
     # R_LT
     if R_source == "AO":
         r_path = f"tables_from_Yannick/exp_binning/AO/Wdist_Q2_{Q2_value}_GLOBAL_LT.dat"
+    elif R_source == "Astrid":
+        r_path = f"tables_from_Yannick/exp_binning/Astrid/Wdist_Q2_{Q2_value}_GLOBAL_LT.dat"
+    elif R_source == "CJ15":
+        r_path = f"tables_from_Yannick/exp_binning/CJ15/Wdist_Q2_{Q2_value}_GLOBAL_LT.dat"
+    else:
+        raise ValueError(f"Unknown R_source='{R_source}'. Use 'AO', 'Astrid', or 'CJ15'.")
 
     r_df = pd.read_csv(r_path, sep=r"\s+", comment="#", header=None)
 
@@ -84,7 +90,7 @@ def F2_from_xsect_data(Q2_value, R_source = "AO"):
 
 
 
-def calc_trunc_moment_data(Q2_value, region, n=2, error_mode="correlated"):
+def calc_trunc_moment_data(Q2_value, region, R_source, n=2, error_mode="correlated"):
     """
     Truncated Cornwall–Norton moment from data:
         M_n(Q2; region) = ∫_{x_lo}^{x_hi} x^{n-2} F2(x,Q2) dx
@@ -101,7 +107,7 @@ def calc_trunc_moment_data(Q2_value, region, n=2, error_mode="correlated"):
     M = 0.9382720813
 
     # --- get data (x, F2, dF2) ---
-    df = F2_from_xsect_data(Q2_value)
+    df = F2_from_xsect_data(Q2_value, R_source = R_source)
     x  = df["x"].to_numpy(dtype=float)
     F2 = df["F2"].to_numpy(dtype=float)
     dF = df["F2_err"].to_numpy(dtype=float)
@@ -375,5 +381,47 @@ def calculate_epsilon_yannick(Q2_value):
 
     print(df.head(50))
 
-calculate_epsilon_yannick(2.774)
-calculate_epsilon_valerii(2.774)
+def plot_R_vs_W_grid(Q2_value, out_dir = "checking_R_LT"):
+    Q2_value = float(Q2_value)
+    data_dir_AO="tables_from_Yannick/exp_binning/AO"
+    data_dir_Astrid="tables_from_Yannick/exp_binning/Astrid"
+    data_dir_CJ15 = "tables_from_Yannick/exp_binning/CJ15"
+    
+    fpath_AO = Path(data_dir_AO) / f"Wdist_Q2_{Q2_value}_GLOBAL_LT.dat"
+    fpath_Astrid = Path(data_dir_Astrid) / f"Wdist_Q2_{Q2_value}_GLOBAL_LT.dat"
+    fpath_CJ15 = Path(data_dir_CJ15) / f"Wdist_Q2_{Q2_value}_GLOBAL_LT.dat"
+    
+    data_AO = np.loadtxt(fpath_AO, skiprows=1)
+    W = data_AO[:, 0]
+    R_LT_AO = data_AO[:, 5]
+    dR_LT_AO = data_AO[:, 6]
+
+    data_Astrid = np.loadtxt(fpath_Astrid, skiprows=1)
+    R_LT_Astrid = data_Astrid[:, 5]
+    dR_LT_Astrid = data_Astrid[:, 6]
+
+    data_CJ15 = np.loadtxt(fpath_CJ15, skiprows=1)
+    R_LT_CJ15 = data_CJ15[:, 5]
+    dR_LT_CJ15 = data_CJ15[:, 6]
+    # Plotting
+    fig, ax = plt.subplots(figsize=(8, 6))
+    ax.scatter(W, R_LT_AO, marker='o', label='AO')
+    ax.scatter(W, R_LT_Astrid, marker='s', label='Astrid')
+    ax.scatter(W, R_LT_CJ15, marker='^', label='CJ15')
+    ax.set_xlabel('W [GeV]')
+    ax.set_ylabel('R_LT')
+    ax.set_title(f'R_LT vs W at Q²={Q2_value} GeV²')
+    ax.legend()
+    ax.grid(alpha=0.25)
+    os.makedirs(out_dir, exist_ok=True)
+    out_png=f"R_LT_vs_W_{Q2_value}_comparison.png"
+    out_filepath = Path(out_dir) / out_png
+    fig.savefig(out_filepath, dpi=300)
+    plt.close(fig)
+    
+for Q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
+    plot_R_vs_W_grid(Q2_value=Q2)
+    
+    
+#calculate_epsilon_yannick(2.774)
+#calculate_epsilon_valerii(2.774)

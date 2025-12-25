@@ -498,6 +498,118 @@ def sigma_LT_to_F2_AO_model(fixed_Q2,
 
 
 
+def calculate_moment_AO_model(Q2_value, region, n=2,
+                              E_beam=10.6,
+                              in_dir="tables_from_Yannick/fine_binning/AO",
+                              convert_ub_to_GeV2=True,
+                              divide_by_Gamma=True):
+    """
+    Truncated Cornwall–Norton moment from AO model:
+        M_n(Q2; region) = ∫_{x_lo}^{x_hi} x^{n-2} F2(x,Q2) dx
+
+    Region is defined via the same W-bounds as in calc_trunc_moment_data(),
+    then converted to x-bounds at fixed Q2.
+
+    Integration is performed in x-domain (trapz over x).
+
+    Returns DataFrame with:
+      Q2, region, n, x_lo, x_hi, moment, error
+    (error is set to 0.0 for the model)
+    """
+    M = 0.9382720813
+    Q2 = float(Q2_value)
+
+    # --- get AO model F2 on native W grid ---
+    W, F2W = sigma_LT_to_F2_AO_model(
+        fixed_Q2=Q2,
+        W_out=None,
+        E_beam=E_beam,
+        in_dir=in_dir,
+        convert_ub_to_GeV2=convert_ub_to_GeV2,
+        divide_by_Gamma=divide_by_Gamma
+    )
+
+    W = np.asarray(W, dtype=float)
+    F2W = np.asarray(F2W, dtype=float)
+
+    # --- convert to x, clean, sort by increasing x ---
+    x = Q2 / (W*W - M*M + Q2)
+
+    mask = np.isfinite(x) & np.isfinite(F2W)
+    x, F2W = x[mask], F2W[mask]
+
+    if x.size < 2:
+        return pd.DataFrame([{
+            "Q2": Q2_value, "region": region, "n": n,
+            "x_lo": np.nan, "x_hi": np.nan,
+            "moment": 0.0, "error": 0.0
+        }])
+
+    o = np.argsort(x)
+    x, F2W = x[o], F2W[o]
+
+    # --- region -> W bounds (same as data) ---
+    W_min_data = 1.15
+    Wmax1 = 1.35
+    Wmin2 = Wmax1
+    Wmax2 = 1.60
+    Wmin3 = Wmax2
+    Wmax3 = 2.0
+    W_max = 2.25 if np.isclose(Q2, 9.699, atol=1e-3) else 2.50
+
+    reg = str(region).lower().strip()
+    region_map = {
+        "1": (W_min_data, Wmax1), "r1": (W_min_data, Wmax1), "first": (W_min_data, Wmax1), "1st": (W_min_data, Wmax1),
+        "2": (Wmin2, Wmax2),      "r2": (Wmin2, Wmax2),      "second": (Wmin2, Wmax2),      "2nd": (Wmin2, Wmax2),
+        "3": (Wmin3, Wmax3),      "r3": (Wmin3, Wmax3),      "third": (Wmin3, Wmax3),       "3rd": (Wmin3, Wmax3),
+        "partial": (W_min_data, Wmax3), "part": (W_min_data, Wmax3),
+        "tail": (Wmax3, W_max),
+        "full": (W_min_data, W_max), "all": (W_min_data, W_max),
+    }
+    if reg not in region_map:
+        raise ValueError(f"Unknown region='{region}'. Use one of: {sorted(region_map.keys())}")
+
+    W_lo, W_hi = region_map[reg]
+
+    # --- W -> x bounds at this Q2 ---
+    def x_of_W(Wv):
+        return Q2 / (Wv*Wv - M*M + Q2)
+
+    x1 = x_of_W(W_lo)
+    x2 = x_of_W(W_hi)
+    x_lo_bound = min(x1, x2)
+    x_hi_bound = max(x1, x2)
+
+    # --- intersect with available AO x-range ---
+    lo = max(x_lo_bound, x[0])
+    hi = min(x_hi_bound, x[-1])
+    if lo >= hi:
+        return pd.DataFrame([{
+            "Q2": Q2_value, "region": region, "n": n,
+            "x_lo": lo, "x_hi": hi,
+            "moment": 0.0, "error": 0.0
+        }])
+
+    # --- build segment including interpolated endpoints ---
+    F2_lo = np.interp(lo, x, F2W)
+    F2_hi = np.interp(hi, x, F2W)
+
+    mid = (x > lo) & (x < hi)
+    x_seg  = np.concatenate(([lo], x[mid], [hi]))
+    F2_seg = np.concatenate(([F2_lo], F2W[mid], [F2_hi]))
+
+    # --- CN integrand and trapezoid integral in x ---
+    y = (x_seg ** (n - 2)) * F2_seg
+    moment = float(np.trapz(y, x_seg))
+
+    return pd.DataFrame([{
+        "Q2": Q2_value, "region": region, "n": n,
+        "x_lo": lo, "x_hi": hi,
+        "moment": moment, "error": 0.0
+    }])
+
+
+
 def make_sigma_LT_1pi_table(Q2):
     """
     Compute σ_L^{1π}(W) and σ_T^{1π}(W) at fixed Q² using your existing
