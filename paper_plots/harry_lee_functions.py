@@ -751,9 +751,9 @@ def compare_W1W2_pdf_vs_AO(
     
     
 
-def plot_F2_data_AO_PDF(Q2_value, show_lines = False, vs_what = "w", pdf_set_nlo="CJ15nlo"):
+def plot_F2_from_data_AO_PDF(Q2_value, show_lines = False, vs_what = "w", pdf_set_nlo="CJ15nlo"):
     
-     # ----------------------------- data (exp) -----------------------------
+    # ------------------------------------ data (exp) -------------------------------------
     R_source = "AO"
     df_data = F2_from_xsect_data(Q2_value,R_source=R_source)
     W = df_data["W"].to_numpy()
@@ -917,6 +917,60 @@ def plot_F2_data_AO_PDF(Q2_value, show_lines = False, vs_what = "w", pdf_set_nlo
     
     
 
+def plot_F2_from_data_diff_R_sources(Q2_value, vs_what = "w"):
+    
+    # ------------------------------------ data (exp) -------------------------------------
+    df_data_AO = F2_from_xsect_data(Q2_value,R_source="AO")
+    df_data_Astrid = F2_from_xsect_data(Q2_value,R_source="Astrid")
+    df_data_CJ15 = F2_from_xsect_data(Q2_value,R_source="CJ15")
+    W = df_data_AO["W"].to_numpy()
+    x = df_data_AO["x"].to_numpy()
+    
+    F2_AO = df_data_AO["F2"].to_numpy()
+    F2_err_AO = df_data_AO["F2_err"].to_numpy()
+
+    F2_Astrid = df_data_Astrid["F2"].to_numpy()
+    F2_err_Astrid = df_data_Astrid["F2_err"].to_numpy()
+
+    F2_CJ15 = df_data_CJ15["F2"].to_numpy()
+    F2_err_CJ15 = df_data_CJ15["F2_err"].to_numpy()
+    # ----------------------------------------------Plotting-----------------------------------------------
+
+    plt.figure(figsize=(7, 5))
+    ax = plt.gca()
+    vs = vs_what.lower().strip()
+    if vs in ["w", "W"]:
+        order = np.argsort(W)
+        x_axis = W[order]
+        xlab = r"$W$ [GeV]"
+        tag = "W"
+    elif vs in ["x", "X"]:
+        order = np.argsort(x)  # increasing x
+        x_axis = x[order]
+        xlab = r"$x_{B}$"
+        tag = "x"
+    else:
+        raise ValueError(f"vs_what must be 'w' or 'x' (got '{vs_what}')")
+
+    plt.scatter(x_axis, F2_AO[order], label=r"RGA data with $R_{LT}$ from AO", color="black", s=5)
+    plt.scatter(x_axis, F2_Astrid[order],  label=r"RGA data with $R_{LT}$ from Astrid", color="green", s=5)
+    plt.scatter(x_axis, F2_CJ15[order],  label=r"RGA data with $R_{LT}$ from CJ15", color="red", s=5)
+
+    plt.xlabel(xlab)
+    plt.ylabel(r"$F_2 \; (GeV^{-2})$")
+    plt.title(rf"$F_2$ structure function; $Q^2 = {Q2_value}$ GeV$^2$")
+    plt.grid(True)
+    plt.legend(frameon=False, fontsize=10, loc="best")
+    plt.tight_layout()
+    out_dir = "F2_diff_R_sources_plots"
+    os.makedirs(out_dir, exist_ok=True)
+    out_pdf = os.path.join(out_dir, f"F2_Q2={Q2_value}_vs_{tag}.pdf")
+    plt.savefig(out_pdf, dpi=200)
+    plt.close()
+    print(f"Saved → {out_pdf}")
+
+
+
 def plot_M2_truncated_vs_Q2(pdf_set, error_mode="correlated", in_dir="../getF1F2/Output/truncated_moments",
                            out_dir="Moment_vs_Q2"):
     in_path = os.path.join(in_dir, f"M2_{pdf_set}.txt")
@@ -995,7 +1049,7 @@ def plot_M2_truncated_vs_Q2(pdf_set, error_mode="correlated", in_dir="../getF1F2
                 continue
             ao_m2[r][i] = m_ao
 
-    # -------------------- ### NEW: Wmax info for title --------------------
+    # -------------------- ###  Wmax info for title --------------------
     Q2_special = 9.699
     Wmax_default = 2.5
     Wmax_special = 2.25
@@ -1048,68 +1102,21 @@ def plot_M2_truncated_vs_Q2(pdf_set, error_mode="correlated", in_dir="../getF1F2
         plt.savefig(out_path, dpi=200)
         plt.close()
         
-       
-
-        
-        # ---- NEW: RATIO plot (CJ15 NLO+LT+TMC+HT) / data   Will delete later----
-        good_ratio = (
-            np.isfinite(exp_m2[region]) &
-            np.isfinite(exp_e2[region]) &
-            np.isfinite(brady[region]) &
-            (exp_m2[region] != 0.0)
-        )
-
-        if np.any(good_ratio):
-            ratio = brady[region][good_ratio] / exp_m2[region][good_ratio]
-
-            # propagate ONLY data uncertainty (theory treated as exact here)
-            ratio_err = np.abs(ratio) * (exp_e2[region][good_ratio] / np.abs(exp_m2[region][good_ratio]))
-
-            plt.figure()
-            plt.errorbar(Q2s[good_ratio], ratio, yerr=ratio_err,
-                         fmt="o", linestyle="none", markersize=3, capsize=2,
-                         color="black",
-                         label="(CJ15 + soft corr) / data")
-            plt.axhline(1.0, linestyle="--", linewidth=1)
-
-            plt.xlabel(r"$Q^2\ \mathrm{[GeV^2]}$")
-            plt.ylabel(r"$M_2^{\mathrm{CJ15}} / M_2^{\mathrm{data}}$")
-            if region in ["all", "tail"]:
-                plt.title(f"Ratio: {region_titles[region]}\n{title_suffix}")
-            else:
-                plt.title(f"Ratio: {region_titles[region]}")
-
-            plt.grid(True, which="both", alpha=0.3)
-            plt.legend()
-
-            out_path_ratio = os.path.join(
-                out_dir,
-                f"M2_ratio_CJ15TMCHT_over_data_{pdf_set}_{region}_error_{error_mode}.pdf"
-            )
-            ax = plt.gca()
-            text = (r"$Ratio=\frac{CJ15}{Data}$" "\n"
-                    r"$\sigma_{Ratio} = |Ratio|\cdot \frac{\sigma_{Data}}{Data}$" "\n"
-                    r"(data err only)")
-            ax.text(0.02, 0.02, text,
-            transform=ax.transAxes,   # <-- axes coords (0..1)
-            va="bottom", ha="left",
-            fontsize=10,
-            bbox=dict(boxstyle="round,pad=0.25", alpha=0.8))
-
-            plt.tight_layout()
-            plt.savefig(out_path_ratio, dpi=200)
-            plt.close()
-
-
+    
     print(f"Saved to: {out_dir}")
 
 
 #-----------------------------------------------------------------------------------------------------------
 for Q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
-    plot_F2_data_AO_PDF(Q2_value=Q2, show_lines = True, vs_what = "x", pdf_set_nlo="CJ15nlo")
-    plot_F2_data_AO_PDF(Q2_value=Q2, show_lines = True, vs_what = "w", pdf_set_nlo="CJ15nlo")
-    plot_F2_data_AO_PDF(Q2_value=Q2, show_lines = False, vs_what = "x", pdf_set_nlo="CJ15nlo")
-    plot_F2_data_AO_PDF(Q2_value=Q2, show_lines = False, vs_what = "w", pdf_set_nlo="CJ15nlo")
+    plot_F2_from_data_diff_R_sources(Q2_value=Q2, vs_what = "w")
+    plot_F2_from_data_diff_R_sources(Q2_value=Q2, vs_what = "x")
+
+
+#for Q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
+#    plot_F2_data_AO_PDF(Q2_value=Q2, show_lines = True, vs_what = "x", pdf_set_nlo="CJ15nlo")
+#    plot_F2_data_AO_PDF(Q2_value=Q2, show_lines = True, vs_what = "w", pdf_set_nlo="CJ15nlo")
+#    plot_F2_data_AO_PDF(Q2_value=Q2, show_lines = False, vs_what = "x", pdf_set_nlo="CJ15nlo")
+#    plot_F2_data_AO_PDF(Q2_value=Q2, show_lines = False, vs_what = "w", pdf_set_nlo="CJ15nlo")
 
 
 #plot_M2_truncated_vs_Q2(pdf_set="CJ15nlo", error_mode="point_uncorrelated")
@@ -1126,7 +1133,7 @@ for Q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
 #compare_F2([1.025, 2.025, 2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699, 15.0, 20.0],pdf_set="CJ15nlo", W_cutoff=30.0)
 
 #for Q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
-    #compare_xsecs(fixed_Q2=Q2, beam_energy=10.6, pdf_set_lo="CJ15lo", pdf_set_nlo="CJ15nlo", W_cutoff=2.5)    
+    #compare_xsecs(fixed_Q2=Q2, beam_energy=10.6, pdf_set_lo="CJ15lo", pdf_set_nlo="CJ15nlo", W_cutoff=4)    
 
 
 

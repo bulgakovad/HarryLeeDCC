@@ -9,7 +9,7 @@ from pathlib import Path
 import os
 
 
-E_beam = 10.604
+E_beam = 10.6
 M = 0.9382720813
 alpha = 1/137.035999084
 four_pi2_alpha = 4.0*np.pi**2*alpha
@@ -36,11 +36,11 @@ def F2_from_xsect_data(Q2_value, R_source):
     
     # R_LT
     if R_source == "AO":
-        r_path = f"tables_from_Yannick/exp_binning/AO/Wdist_Q2_{Q2_value}_GLOBAL_LT.dat"
+        r_path = f"tables_from_Yannick/exp_binning/{R_source}/Wdist_Q2_{Q2_value}_GLOBAL_LT.dat"
     elif R_source == "Astrid":
-        r_path = f"tables_from_Yannick/exp_binning/Astrid/Wdist_Q2_{Q2_value}_GLOBAL_LT.dat"
+        r_path = f"tables_from_Yannick/exp_binning/{R_source}/Wdist_Q2_{Q2_value}_GLOBAL_LT.dat"
     elif R_source == "CJ15":
-        r_path = f"tables_from_Yannick/exp_binning/CJ15/Wdist_Q2_{Q2_value}_GLOBAL_LT.dat"
+        r_path = f"tables_from_Yannick/exp_binning/{R_source}/Wdist_Q2_{Q2_value}_GLOBAL_LT.dat"
     else:
         raise ValueError(f"Unknown R_source='{R_source}'. Use 'AO', 'Astrid', or 'CJ15'.")
 
@@ -334,9 +334,7 @@ def calculate_epsilon_valerii(Q2_value):
     os.makedirs(out_dir, exist_ok=True)
     out_filename = out_dir + filename + "_TEST_EPSILON.csv"
     df.to_csv(out_filename, sep="\t", index=False)
-
-
-    print(df)
+    #print(df)
 
 def calculate_epsilon_yannick(Q2_value):
     Q2 = float(Q2_value)
@@ -377,9 +375,7 @@ def calculate_epsilon_yannick(Q2_value):
     os.makedirs(out_dir, exist_ok=True)
     out_filename = out_dir + filename + "_TEST_EPSILON.csv"
     df.to_csv(out_filename, sep="\t", index=False)
-
-
-    print(df.head(50))
+    #print(df.head(50))
 
 def plot_R_vs_W_grid(Q2_value, out_dir = "checking_R_LT"):
     Q2_value = float(Q2_value)
@@ -423,5 +419,5 @@ for Q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
     plot_R_vs_W_grid(Q2_value=Q2)
     
     
-#calculate_epsilon_yannick(2.774)
+calculate_epsilon_yannick(2.774)
 #calculate_epsilon_valerii(2.774)
