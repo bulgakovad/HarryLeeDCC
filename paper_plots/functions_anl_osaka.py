@@ -1,10 +1,12 @@
 import numpy as np
 import math
-from scipy.interpolate import RectBivariateSpline
+from scipy.interpolate import RectBivariateSpline, CubicSpline
+from scipy.integrate import quad
 import matplotlib.pyplot as plt
 import os
 import pandas as pd
 from matplotlib.ticker import MultipleLocator, FormatStrFormatter
+
 
 """Functions for interpolating structure functions and computing cross sections for ANL-Osaka model.
 """
@@ -492,8 +494,29 @@ def sigma_LT_to_F2_AO_model(fixed_Q2,
         return W, F2
 
     W_out = np.asarray(W_out, dtype=float)
-    # no extrapolation beyond AO coverage
-    F2_out = np.interp(W_out, W, F2, left=np.nan, right=np.nan)
+
+    # ---- NEW: cubic spline interpolation in W (no extrapolation) ----
+    m = np.isfinite(W) & np.isfinite(F2)
+    Wv = np.asarray(W[m], dtype=float)
+    F2v = np.asarray(F2[m], dtype=float)
+
+    if Wv.size < 2:
+        return W_out, np.full_like(W_out, np.nan, dtype=float)
+
+    # sort and enforce strictly increasing W
+    o = np.argsort(Wv)
+    Wv = Wv[o]
+    F2v = F2v[o]
+
+    Wv_u, idx = np.unique(Wv, return_index=True)
+    F2v_u = F2v[idx]
+
+    if Wv_u.size < 2:
+        return W_out, np.full_like(W_out, np.nan, dtype=float)
+
+    cs = CubicSpline(Wv_u, F2v_u, bc_type="natural", extrapolate=False)
+    F2_out = cs(W_out)  # returns nan outside [min(W), max(W)] because extrapolate=False
+
     return W_out, F2_out
 
 
@@ -507,15 +530,14 @@ def calculate_moment_AO_model(Q2_value, region, n=2,
     Truncated Cornwall–Norton moment from AO model:
         M_n(Q2; region) = ∫_{x_lo}^{x_hi} x^{n-2} F2(x,Q2) dx
 
-    Region is defined via the same W-bounds as in calc_trunc_moment_data(),
-    then converted to x-bounds at fixed Q2.
+    Region is defined via W-bounds (same as data), then converted to x-bounds at fixed Q2.
 
-    Integration is performed in x-domain (trapz over x).
-
-    Returns DataFrame with:
-      Q2, region, n, x_lo, x_hi, moment, error
-    (error is set to 0.0 for the model)
+    Uses:
+      - cubic spline interpolation in x (CubicSpline)
+      - quad integration in x
     """
+    
+
     M = 0.9382720813
     Q2 = float(Q2_value)
 
@@ -532,11 +554,11 @@ def calculate_moment_AO_model(Q2_value, region, n=2,
     W = np.asarray(W, dtype=float)
     F2W = np.asarray(F2W, dtype=float)
 
-    # --- convert to x, clean, sort by increasing x ---
-    x = Q2 / (W*W - M*M + Q2)
-
+    # --- convert to x and clean ---
+    x = Q2 / (W * W - M * M + Q2)
     mask = np.isfinite(x) & np.isfinite(F2W)
-    x, F2W = x[mask], F2W[mask]
+    x = x[mask]
+    F2W = F2W[mask]
 
     if x.size < 2:
         return pd.DataFrame([{
@@ -545,10 +567,22 @@ def calculate_moment_AO_model(Q2_value, region, n=2,
             "moment": 0.0, "error": 0.0
         }])
 
+    # --- sort by increasing x and enforce strictly increasing x for CubicSpline ---
     o = np.argsort(x)
-    x, F2W = x[o], F2W[o]
+    x = x[o]
+    F2W = F2W[o]
 
-    # --- region -> W bounds (same as data) ---
+    x_u, idx = np.unique(x, return_index=True)
+    F2_u = F2W[idx]
+
+    if x_u.size < 2:
+        return pd.DataFrame([{
+            "Q2": Q2_value, "region": region, "n": n,
+            "x_lo": np.nan, "x_hi": np.nan,
+            "moment": 0.0, "error": 0.0
+        }])
+
+    # --- region -> W bounds (same as your original) ---
     W_min_data = 1.15
     Wmax1 = 1.35
     Wmin2 = Wmax1
@@ -573,16 +607,16 @@ def calculate_moment_AO_model(Q2_value, region, n=2,
 
     # --- W -> x bounds at this Q2 ---
     def x_of_W(Wv):
-        return Q2 / (Wv*Wv - M*M + Q2)
+        return Q2 / (Wv * Wv - M * M + Q2)
 
-    x1 = x_of_W(W_lo)
-    x2 = x_of_W(W_hi)
-    x_lo_bound = min(x1, x2)
-    x_hi_bound = max(x1, x2)
+    xb1 = x_of_W(W_lo)
+    xb2 = x_of_W(W_hi)
+    x_lo_bound = min(xb1, xb2)
+    x_hi_bound = max(xb1, xb2)
 
     # --- intersect with available AO x-range ---
-    lo = max(x_lo_bound, x[0])
-    hi = min(x_hi_bound, x[-1])
+    lo = max(x_lo_bound, float(x_u[0]))
+    hi = min(x_hi_bound, float(x_u[-1]))
     if lo >= hi:
         return pd.DataFrame([{
             "Q2": Q2_value, "region": region, "n": n,
@@ -590,23 +624,24 @@ def calculate_moment_AO_model(Q2_value, region, n=2,
             "moment": 0.0, "error": 0.0
         }])
 
-    # --- build segment including interpolated endpoints ---
-    F2_lo = np.interp(lo, x, F2W)
-    F2_hi = np.interp(hi, x, F2W)
+    # --- cubic spline F2(x), no extrapolation ---
+    F2_spline_x = CubicSpline(x_u, F2_u, bc_type="natural", extrapolate=False)
 
-    mid = (x > lo) & (x < hi)
-    x_seg  = np.concatenate(([lo], x[mid], [hi]))
-    F2_seg = np.concatenate(([F2_lo], F2W[mid], [F2_hi]))
+    def integrand(xv):
+        f2 = F2_spline_x(xv)
+        if not np.isfinite(f2):
+            return 0.0
+        return (xv ** (n - 2)) * float(f2)
 
-    # --- CN integrand and trapezoid integral in x ---
-    y = (x_seg ** (n - 2)) * F2_seg
-    moment = float(np.trapz(y, x_seg))
+    moment, _ = quad(integrand, lo, hi, epsabs=1e-8, epsrel=1e-6, limit=200)
 
     return pd.DataFrame([{
         "Q2": Q2_value, "region": region, "n": n,
         "x_lo": lo, "x_hi": hi,
-        "moment": moment, "error": 0.0
+        "moment": float(moment), "error": 0.0
     }])
+
+
 
 
 
@@ -799,6 +834,5 @@ def make_dsigma_dWdQ2_full_vs_1pi_plot(Q2, E_beam):
     return png_path
 
 
-#make_dsigma_dWdQ2_full_vs_1pi_plot(2.774, 10.6)
-make_sigma_LT_table(2.774)
+
 

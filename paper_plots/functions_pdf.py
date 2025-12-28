@@ -1,8 +1,10 @@
 import numpy as np
 import math
-from scipy.interpolate import  interp1d
+from scipy.interpolate import  interp1d, CubicSpline
+from scipy.integrate import quad
 import os
 import pandas as pd
+
 
 """
 Helper functions for PDF-based structure function calculations
@@ -467,6 +469,149 @@ def get_pdf_xsecs_table(fixed_Q2, beam_energy,
     np.savetxt(out_path, table, fmt="%.6e", delimiter="\t", header=header, comments="")
 
     return out_path
+
+
+def calculate_moment_LO_pdf(Q2_value, region, pdf_set="CJ15lo", n=2,
+                            q2_tol=1e-4,
+                            epsabs=1e-8, epsrel=1e-6, limit=200,
+                            n_W_dense=800):
+    """
+    Truncated Cornwall–Norton moment from LO PDF:
+        M_n(Q2; region) = ∫_{x_lo}^{x_hi} x^{n-2} F2_LO(x,Q2) dx
+
+    Region is defined via W-bounds (same mapping as AO/data),
+    then converted to x-bounds at fixed Q2.
+
+    Implementation:
+      1) get F2_LO(W) interpolator from get_lo_pdf_interpolators()
+      2) sample F2_LO on W in [W_lo, W_hi]
+      3) convert sampled W -> x, build CubicSpline F2_LO(x)
+      4) integrate with quad in x
+
+    Returns DataFrame with:
+      Q2, region, n, x_lo, x_hi, moment, error(=0)
+    """
+
+
+    M = 0.9382720813
+    Q2 = float(Q2_value)
+
+    # --- get LO interpolator over W and its native W coverage ---
+    F1_LO_i, F2_LO_i, W_sorted = get_lo_pdf_interpolators(Q2, pdf_set, q2_tol=q2_tol)
+    W_sorted = np.asarray(W_sorted, dtype=float)
+    Wmin_cov = float(np.nanmin(W_sorted))
+    Wmax_cov = float(np.nanmax(W_sorted))
+
+    # --- region -> W bounds (same as AO/data) ---
+    W_min_data = 1.15
+    Wmax1 = 1.35
+    Wmin2 = Wmax1
+    Wmax2 = 1.60
+    Wmin3 = Wmax2
+    Wmax3 = 2.0
+    W_max = 2.25 if np.isclose(Q2, 9.699, atol=1e-3) else 2.50
+
+    reg = str(region).lower().strip()
+    region_map = {
+        "1": (W_min_data, Wmax1), "r1": (W_min_data, Wmax1), "first": (W_min_data, Wmax1), "1st": (W_min_data, Wmax1),
+        "2": (Wmin2, Wmax2),      "r2": (Wmin2, Wmax2),      "second": (Wmin2, Wmax2),      "2nd": (Wmin2, Wmax2),
+        "3": (Wmin3, Wmax3),      "r3": (Wmin3, Wmax3),      "third": (Wmin3, Wmax3),       "3rd": (Wmin3, Wmax3),
+        "partial": (W_min_data, Wmax3), "part": (W_min_data, Wmax3),
+        "tail": (Wmax3, W_max),
+        "full": (W_min_data, W_max), "all": (W_min_data, W_max),
+    }
+    if reg not in region_map:
+        raise ValueError(f"Unknown region='{region}'. Use one of: {sorted(region_map.keys())}")
+
+    W_lo, W_hi = region_map[reg]
+
+    # --- intersect region with LO PDF coverage to avoid extrapolation artifacts ---
+    W_lo_use = max(W_lo, Wmin_cov)
+    W_hi_use = min(W_hi, Wmax_cov)
+    if W_lo_use >= W_hi_use:
+        # still report consistent x bounds for attempted region
+        def x_of_W(Wv):
+            return Q2 / (Wv * Wv - M * M + Q2)
+
+        x1 = x_of_W(W_lo_use)
+        x2 = x_of_W(W_hi_use)
+        return pd.DataFrame([{
+            "Q2": Q2_value, "region": region, "n": n,
+            "x_lo": min(x1, x2), "x_hi": max(x1, x2),
+            "moment": 0.0, "error": 0.0
+        }])
+
+    # --- build a W grid inside the region: native points + dense grid + endpoints ---
+    W_native = W_sorted[(W_sorted >= W_lo_use) & (W_sorted <= W_hi_use)]
+    W_dense  = np.linspace(W_lo_use, W_hi_use, int(n_W_dense))
+    W_grid   = np.unique(np.concatenate(([W_lo_use], W_native, W_dense, [W_hi_use])))
+
+    # --- evaluate F2_LO(W), convert to x, clean ---
+    F2_grid = np.asarray(F2_LO_i(W_grid), dtype=float)
+    x_grid  = Q2 / (W_grid * W_grid - M * M + Q2)
+
+    m = np.isfinite(x_grid) & np.isfinite(F2_grid)
+    x_grid = x_grid[m]
+    F2_grid = F2_grid[m]
+
+    if x_grid.size < 2:
+        return pd.DataFrame([{
+            "Q2": Q2_value, "region": region, "n": n,
+            "x_lo": np.nan, "x_hi": np.nan,
+            "moment": 0.0, "error": 0.0
+        }])
+
+    # --- sort by increasing x, ensure unique x for spline ---
+    o = np.argsort(x_grid)
+    x_grid = x_grid[o]
+    F2_grid = F2_grid[o]
+
+    x_u, idx = np.unique(x_grid, return_index=True)
+    F2_u = F2_grid[idx]
+
+    if x_u.size < 2:
+        return pd.DataFrame([{
+            "Q2": Q2_value, "region": region, "n": n,
+            "x_lo": np.nan, "x_hi": np.nan,
+            "moment": 0.0, "error": 0.0
+        }])
+
+    # --- x bounds from W bounds (region definition) ---
+    def x_of_W(Wv):
+        return Q2 / (Wv * Wv - M * M + Q2)
+
+    xb1 = x_of_W(W_lo_use)
+    xb2 = x_of_W(W_hi_use)
+    x_lo_bound = min(xb1, xb2)
+    x_hi_bound = max(xb1, xb2)
+
+    # --- intersect with available x coverage from the sampled grid ---
+    lo = max(x_lo_bound, float(x_u[0]))
+    hi = min(x_hi_bound, float(x_u[-1]))
+    if lo >= hi:
+        return pd.DataFrame([{
+            "Q2": Q2_value, "region": region, "n": n,
+            "x_lo": lo, "x_hi": hi,
+            "moment": 0.0, "error": 0.0
+        }])
+
+    # --- cubic spline F2(x), no extrapolation ---
+    F2_spline_x = CubicSpline(x_u, F2_u, bc_type="natural", extrapolate=False)
+
+    def integrand(xv):
+        f2 = F2_spline_x(xv)
+        if not np.isfinite(f2):
+            return 0.0
+        return (xv ** (n - 2)) * float(f2)
+
+    moment, _ = quad(integrand, lo, hi, epsabs=epsabs, epsrel=epsrel, limit=limit)
+
+    return pd.DataFrame([{
+        "Q2": Q2_value, "region": region, "n": n,
+        "x_lo": lo, "x_hi": hi,
+        "moment": float(moment), "error": 0.0
+    }])
+
 
 
 

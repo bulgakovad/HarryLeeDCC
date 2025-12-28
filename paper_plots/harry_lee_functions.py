@@ -6,7 +6,7 @@ import os
 import pandas as pd
 
 
-from functions_pdf import get_lo_pdf_interpolators, get_nlo_pdf_interpolators, compute_pdf_cross_sections, compute_pdf_cross_sections_from_F2_FL, get_R_from_F1F2
+from functions_pdf import get_lo_pdf_interpolators, get_nlo_pdf_interpolators, compute_pdf_cross_sections, compute_pdf_cross_sections_from_F2_FL, get_R_from_F1F2, calculate_moment_LO_pdf
 from functions_anl_osaka import compute_cross_section_model, compute_1pi_cross_section_model, compute_2pi_cross_section_model, interpolate_structure_functions, sigma_LT_to_F2_AO_model, calculate_moment_AO_model
 from functions_data import calc_trunc_moment_data, F2_from_xsect_data, x_of_W
 
@@ -392,12 +392,12 @@ def compare_xsecs(fixed_Q2, beam_energy, pdf_set_lo, pdf_set_nlo,
     if have_AO:
         good_anl_full = np.isfinite(anl_full_xs) & (W_vals <= 2.0)
         h_model_full, = plt.plot(W_vals[good_anl_full], anl_full_xs[good_anl_full],
-                             label="ANL-Osaka full", color="black", ls="solid", lw=2)
+                             label="ANL-Osaka full", color="red", ls="solid", lw=2)
         handles.append(h_model_full)
         
     if have_AO_ext:
             h_AO_ext = plt.errorbar(W_AO_ext, sigma_AO_ext,
-                                 color="black", ls="solid", lw=2,
+                                 color="red", ls="solid", lw=2,
                                  label="ANL-Osaka full (extended)")
             handles.append(h_AO_ext)
     #
@@ -428,7 +428,7 @@ def compare_xsecs(fixed_Q2, beam_energy, pdf_set_lo, pdf_set_nlo,
     if np.isfinite(pdf_nlo_tmc_ht_xs).any():
         good_nlo_tmc_ht = np.isfinite(pdf_nlo_tmc_ht_xs)
         h_pdf_nlo_ht, = plt.plot(W_vals[good_nlo_tmc_ht], pdf_nlo_tmc_ht_xs[good_nlo_tmc_ht],
-                                 label=f"{pdf_set_nlo}: NLO + LT + TMC(OPE) + HT", color="orange", ls="dashdot", lw=2)
+                                 label=f"{pdf_set_nlo}: NLO + LT + TMC(OPE) + HT", color="orange", ls="solid", lw=2)
         handles.append(h_pdf_nlo_ht)
 
     # NEW curve from (F2, FL)
@@ -440,7 +440,7 @@ def compare_xsecs(fixed_Q2, beam_energy, pdf_set_lo, pdf_set_nlo,
 
     if have_rga:
         h_rga = plt.errorbar(W_rga, sigma_rga, yerr=err_rga,
-                             fmt="s", color="magenta", capsize=1, ms=2,
+                             fmt="s", color="black", capsize=1, ms=2,
                              label="RGA data (V. Klimenko)")
         handles.append(h_rga)
         
@@ -751,18 +751,31 @@ def compare_W1W2_pdf_vs_AO(
     
     
 
-def plot_F2_from_data_AO_PDF(Q2_value, show_lines = False, vs_what = "w", pdf_set_nlo="CJ15nlo"):
+def plot_F2_from_data_AO_PDF(Q2_value, W_cutoff = 2.0, show_lines = False, vs_what = "w", pdf_set_lo = "CJ15lo", pdf_set_nlo="CJ15nlo"):
     
     # ------------------------------------ data (exp) -------------------------------------
-    R_source = "AO"
-    df_data = F2_from_xsect_data(Q2_value,R_source=R_source)
+
+    df_data = F2_from_xsect_data(Q2_value,R_source="AO")
     W = df_data["W"].to_numpy()
     x = df_data["x"].to_numpy()
     F2 = df_data["F2"].to_numpy()
     F2_err = df_data["F2_err"].to_numpy()
     
+    mask_data = W <= W_cutoff
+    W = W[mask_data]
+    x = x[mask_data]
+    F2 = F2[mask_data]
+    F2_err = F2_err[mask_data]
+    
     
     #------------------------------------PDF predictions----------------------------------------
+    have_lo = False
+    try:
+        _, F2_LO, W_lo_rng = get_lo_pdf_interpolators(Q2_value,pdf_set=pdf_set_lo)
+        W_lo_min = float(np.min(W_lo_rng))
+        have_lo = True
+    except Exception:
+        pass
     have_nlo = False
     try:
           _, _, _, _, F2_NLO, F2_NLO_TMC, F2_NLO_TMC_HT, _, _, _, W_nlo_rng = get_nlo_pdf_interpolators(Q2_value,pdf_set=pdf_set_nlo)
@@ -775,14 +788,19 @@ def plot_F2_from_data_AO_PDF(Q2_value, show_lines = False, vs_what = "w", pdf_se
     wmins = []
     if have_nlo: wmins.append(W_nlo_min)
     W_min_global = max(1.0, min(wmins)) if wmins else 1.0
-    W_max_global = float(np.max(W))+0.03
+    W_max_global = W_cutoff
     W_vals = np.linspace(W_min_global, W_max_global, 400)
+    # Evaluate LO
+    F2_LO_vals = np.full_like(W_vals, np.nan, dtype=float)
      # Evaluate NLO (LT, TMC only, TMC+HT, HT-only)
     F2_NLO_vals = np.full_like(W_vals, np.nan, dtype=float)
     F2_NLO_TMC_vals = np.full_like(W_vals, np.nan, dtype=float)
     F2_NLO_TMC_HT_vals = np.full_like(W_vals, np.nan, dtype=float)
+    m = (W_vals >= W_nlo_min) & (W_vals <= W_max_global)
+    if have_lo:
+        try: F2_LO_vals[m]  = F2_LO(W_vals[m])
+        except Exception: pass
     if have_nlo:
-        m = (W_vals >= W_nlo_min) & (W_vals <= W_max_global)
         try: F2_NLO_vals[m]  = F2_NLO(W_vals[m])
         except Exception: pass
         try: F2_NLO_TMC_vals[m] = F2_NLO_TMC(W_vals[m])
@@ -796,6 +814,7 @@ def plot_F2_from_data_AO_PDF(Q2_value, show_lines = False, vs_what = "w", pdf_se
         # Native AO grid -> interpolate to our W_vals without extrapolation
         W_AO, F2_AO_native = sigma_LT_to_F2_AO_model(Q2_value)  # returns native (W, F2)
         F2_AO_vals = np.interp(W_vals, W_AO, F2_AO_native, left=np.nan, right=np.nan)
+        F2_AO_vals = F2_AO_vals[m]
         have_ao = True
     except Exception:
         pass
@@ -839,25 +858,35 @@ def plot_F2_from_data_AO_PDF(Q2_value, show_lines = False, vs_what = "w", pdf_se
     F2_plot = F2[order]
     F2e_plot = F2_err[order]
     plt.errorbar(x_axis, F2_plot, yerr=F2e_plot, label="RGA data (V.Klimenko)", color="black", fmt="o", linestyle="none", markersize=2.5, capsize=2)
+    if tag == "W" and have_lo:
+        good = np.isfinite(F2_LO_vals)
+        if good.any():
+            plt.plot(W_vals[good], F2_LO_vals[good], label=f"{pdf_set_lo}: LO + LT", color="blue", ls="dotted", lw=1.3)
     if tag == "W" and have_nlo:
         if np.isfinite(F2_NLO_vals).any():
             good = np.isfinite(F2_NLO_vals)
-            h_naked, = plt.plot(W_vals[good], F2_NLO_vals[good], label=f"{pdf_set_nlo}: NLO + LT", color="magenta", ls="dashed", lw=1.3)
+            h_naked, = plt.plot(W_vals[good], F2_NLO_vals[good], label=f"{pdf_set_nlo}: NLO + LT", color="green", ls="dashed", lw=1.3)
         if np.isfinite(F2_NLO_TMC_HT_vals).any():
             good = np.isfinite(F2_NLO_TMC_HT_vals)
             h_bht, = plt.plot(W_vals[good], F2_NLO_TMC_HT_vals[good], label=f"{pdf_set_nlo}: NLO + LT + TMC (OPE) + HT", color="orange", ls="solid", lw=1.3)
     if tag == "W" and have_ao:
         good = np.isfinite(F2_AO_vals)
         if good.any():
-            plt.plot(W_vals[good], F2_AO_vals[good], label="AO model extended", color="black", ls="solid", lw=1.3)
+            plt.plot(W_vals[good], F2_AO_vals[good], label="AO model extended", color="red", ls="solid", lw=1.3)
      # --- PDF curves on x-axis ---
+    if tag == "x" and have_lo:
+       x_pdf = x_of_W(W_vals, Q2_value)
+       good = np.isfinite(F2_LO_vals) & np.isfinite(x_pdf)
+       if good.any():
+           p = np.argsort(x_pdf[good])
+           plt.plot(x_pdf[good][p], F2_LO_vals[good][p], label=f"{pdf_set_lo}: LO + LT", color="blue", ls="dotted", lw=1.3)
     if tag == "x" and have_nlo:
         x_pdf = x_of_W(W_vals, Q2_value)
         # NLO + LT
         good = np.isfinite(F2_NLO_vals) & np.isfinite(x_pdf)
         if good.any():
             p = np.argsort(x_pdf[good])  # increasing x
-            plt.plot(x_pdf[good][p], F2_NLO_vals[good][p], label=f"{pdf_set_nlo}: NLO + LT", color="magenta", ls="dashed", lw=1.3)
+            plt.plot(x_pdf[good][p], F2_NLO_vals[good][p], label=f"{pdf_set_nlo}: NLO + LT", color="green", ls="dashed", lw=1.3)
         # NLO + LT + TMC + HT
         good = np.isfinite(F2_NLO_TMC_HT_vals) & np.isfinite(x_pdf)
         if good.any():
@@ -868,7 +897,8 @@ def plot_F2_from_data_AO_PDF(Q2_value, show_lines = False, vs_what = "w", pdf_se
         good = np.isfinite(F2_AO_vals) & np.isfinite(x_ao)
         if good.any():
             p = np.argsort(x_ao[good])
-            plt.plot(x_ao[good][p], F2_AO_vals[good][p], label="AO model extended", color="black", ls="solid", lw=1.3)
+            plt.plot(x_ao[good][p], F2_AO_vals[good][p], label="AO model extended", color="red", ls="solid", lw=1.3)
+    # --------------------- Vertical lines and labels for different W (or x) regions --------------------------
     if show_lines:
         y_top = 0.95
         def label_between(x_left, x_right, txt, color):
@@ -971,8 +1001,7 @@ def plot_F2_from_data_diff_R_sources(Q2_value, vs_what = "w"):
 
 
 
-def plot_M2_truncated_vs_Q2(pdf_set, error_mode="correlated", in_dir="../getF1F2/Output/truncated_moments",
-                           out_dir="Moment_vs_Q2"):
+def plot_M2_truncated_vs_Q2(pdf_set, error_mode="correlated", in_dir="../getF1F2/Output/truncated_moments", out_dir="Moment_vs_Q2"):
     in_path = os.path.join(in_dir, f"M2_{pdf_set}.txt")
     if not os.path.isfile(in_path):
         raise FileNotFoundError(f"Cannot find input file: {in_path}")
@@ -1015,7 +1044,7 @@ def plot_M2_truncated_vs_Q2(pdf_set, error_mode="correlated", in_dir="../getF1F2
         brady[k] = brady[k][idx]
         naked[k] = naked[k][idx]
         
-    # ---- NEW: experimental moments from data ----
+    # ---- experimental moments from data ----
     exp_m2 = {r: np.full_like(Q2s, np.nan, dtype=float) for r in regions}
     exp_e2 = {r: np.full_like(Q2s, np.nan, dtype=float) for r in regions}
 
@@ -1031,7 +1060,7 @@ def plot_M2_truncated_vs_Q2(pdf_set, error_mode="correlated", in_dir="../getF1F2
 
             exp_m2[r][i] = m
             exp_e2[r][i] = de
-    # ------------------------- NEW: AO model moments -----------------------------
+    # -------------------------  AO model moments -----------------------------
     ao_m2 = {r: np.full_like(Q2s, np.nan, dtype=float) for r in regions}
 
     for i, q2v in enumerate(Q2s):
@@ -1048,6 +1077,17 @@ def plot_M2_truncated_vs_Q2(pdf_set, error_mode="correlated", in_dir="../getF1F2
             if m_ao == 0.0:
                 continue
             ao_m2[r][i] = m_ao
+    # ---------------------------LO PDF moments ------------------------------
+    lo_pdf_m2 = {r: np.full_like(Q2s, np.nan, dtype=float) for r in regions}
+    for i, q2v in enumerate(Q2s):
+        for r in regions:
+            out_lo = calculate_moment_LO_pdf(
+                q2v, r
+            ).iloc[0]
+            m_lo = float(out_lo["moment"])
+            if m_lo == 0.0:
+                continue
+            lo_pdf_m2[r][i] = m_lo
 
     # -------------------- ###  Wmax info for title --------------------
     Q2_special = 9.699
@@ -1076,13 +1116,18 @@ def plot_M2_truncated_vs_Q2(pdf_set, error_mode="correlated", in_dir="../getF1F2
          # -------------------------  AO model prediction ---------------------
         good_ao = np.isfinite(ao_m2[region])
         if np.any(good_ao):
-            plt.plot(Q2s[good_ao], ao_m2[region][good_ao], color="red",marker="o", linestyle="none", markersize=3, label="AO model")
+            plt.plot(Q2s[good_ao], ao_m2[region][good_ao], color="red",marker="o", linestyle="-", markersize=3, label="AO model")
+            
+            # -------------------------  LO PDF prediction -----------------------
+        good_lo = np.isfinite(lo_pdf_m2[region])
+        if np.any(good_lo):
+            plt.plot(Q2s[good_lo], lo_pdf_m2[region][good_lo], color="blue",marker="d", linestyle="-", markersize=3, label="CJ15lo: LO+LT")
         
-        #--------------------PDF-based  prediction--------------------
+        #--------------------NLO PDF-based  prediction--------------------
 
         plt.plot(Q2s, naked[region], marker="^", markersize=3, linestyle="-",color = "green", label="CJ15nlo: NLO+LT")
         plt.plot(Q2s, brady[region], marker="s", markersize=3, linestyle="-",color = "orange", label="CJ15nlo: NLO+LT+TMC+HT")
-        # ---- NEW: experimental points with error bars ----
+        # ----  experimental points with error bars ----
         good = np.isfinite(exp_m2[region]) & np.isfinite(exp_e2[region])
         if np.any(good):
             plt.errorbar(Q2s[good], exp_m2[region][good], yerr=exp_e2[region][good], color = "black", fmt="o", linestyle="none", markersize=3, capsize=2,label=f"RGA data (V.Klimenko)\n R_LT from AO model \n{error_mode} error estimation")
@@ -1107,16 +1152,14 @@ def plot_M2_truncated_vs_Q2(pdf_set, error_mode="correlated", in_dir="../getF1F2
 
 
 #-----------------------------------------------------------------------------------------------------------
-for Q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
-    plot_F2_from_data_diff_R_sources(Q2_value=Q2, vs_what = "w")
-    plot_F2_from_data_diff_R_sources(Q2_value=Q2, vs_what = "x")
+#for Q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
+    #plot_F2_from_data_diff_R_sources(Q2_value=Q2, vs_what = "w")
+    #plot_F2_from_data_diff_R_sources(Q2_value=Q2, vs_what = "x")
 
 
 #for Q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
-#    plot_F2_data_AO_PDF(Q2_value=Q2, show_lines = True, vs_what = "x", pdf_set_nlo="CJ15nlo")
-#    plot_F2_data_AO_PDF(Q2_value=Q2, show_lines = True, vs_what = "w", pdf_set_nlo="CJ15nlo")
-#    plot_F2_data_AO_PDF(Q2_value=Q2, show_lines = False, vs_what = "x", pdf_set_nlo="CJ15nlo")
-#    plot_F2_data_AO_PDF(Q2_value=Q2, show_lines = False, vs_what = "w", pdf_set_nlo="CJ15nlo")
+#    plot_F2_from_data_AO_PDF(Q2_value=Q2, W_cutoff=2.0, show_lines = False, vs_what = "x", pdf_set_nlo="CJ15nlo")
+#    plot_F2_from_data_AO_PDF(Q2_value=Q2, W_cutoff=2.0, show_lines = False, vs_what = "w", pdf_set_nlo="CJ15nlo")
 
 
 #plot_M2_truncated_vs_Q2(pdf_set="CJ15nlo", error_mode="point_uncorrelated")
@@ -1132,8 +1175,8 @@ for Q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
 #compare_F2([1.025,2.025, 2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699, 15.0, 20.0],pdf_set="CJ15nlo", W_cutoff=20.0)
 #compare_F2([1.025, 2.025, 2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699, 15.0, 20.0],pdf_set="CJ15nlo", W_cutoff=30.0)
 
-#for Q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
-    #compare_xsecs(fixed_Q2=Q2, beam_energy=10.6, pdf_set_lo="CJ15lo", pdf_set_nlo="CJ15nlo", W_cutoff=4)    
+for Q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
+    compare_xsecs(fixed_Q2=Q2, beam_energy=10.6, pdf_set_lo="CJ15lo", pdf_set_nlo="CJ15nlo", W_cutoff=2.0)    
 
 
 

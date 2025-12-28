@@ -377,7 +377,7 @@ def calculate_epsilon_yannick(Q2_value):
     df.to_csv(out_filename, sep="\t", index=False)
     #print(df.head(50))
 
-def plot_R_vs_W_grid(Q2_value, out_dir = "checking_R_LT"):
+def plot_R_vs_W_grid(Q2_value, out_dir = "checking_R_LT", W_cutoff=2.0):
     Q2_value = float(Q2_value)
     data_dir_AO="tables_from_Yannick/exp_binning/AO"
     data_dir_Astrid="tables_from_Yannick/exp_binning/Astrid"
@@ -400,6 +400,12 @@ def plot_R_vs_W_grid(Q2_value, out_dir = "checking_R_LT"):
     R_LT_CJ15 = data_CJ15[:, 5]
     dR_LT_CJ15 = data_CJ15[:, 6]
     # Plotting
+    mask = (W <= W_cutoff)
+    W = W[mask]
+    R_LT_AO = R_LT_AO[mask]
+    R_LT_Astrid = R_LT_Astrid[mask]
+    R_LT_CJ15 = R_LT_CJ15[mask]  
+    
     fig, ax = plt.subplots(figsize=(8, 6))
     ax.scatter(W, R_LT_AO, marker='o', label='AO')
     ax.scatter(W, R_LT_Astrid, marker='s', label='Astrid')
@@ -410,7 +416,7 @@ def plot_R_vs_W_grid(Q2_value, out_dir = "checking_R_LT"):
     ax.legend()
     ax.grid(alpha=0.25)
     os.makedirs(out_dir, exist_ok=True)
-    out_png=f"R_LT_vs_W_{Q2_value}_comparison.png"
+    out_png=f"R_LT_vs_W_{Q2_value}_comparison.pdf"
     out_filepath = Path(out_dir) / out_png
     fig.savefig(out_filepath, dpi=300)
     plt.close(fig)
@@ -419,5 +425,5 @@ for Q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
     plot_R_vs_W_grid(Q2_value=Q2)
     
     
-calculate_epsilon_yannick(2.774)
+#calculate_epsilon_yannick(2.774)
 #calculate_epsilon_valerii(2.774)
