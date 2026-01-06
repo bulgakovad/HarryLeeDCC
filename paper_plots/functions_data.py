@@ -4,6 +4,10 @@ import matplotlib.pyplot as plt
 from functions_pdf import  get_nlo_pdf_interpolators
 from functions_anl_osaka import sigma_LT_to_F2_AO_model
 
+import os
+from scipy.interpolate import CubicSpline
+from scipy.integrate import quad
+
 from pathlib import Path
 
 import os
@@ -421,8 +425,232 @@ def plot_R_vs_W_grid(Q2_value, out_dir = "checking_R_LT", W_cutoff=2.0):
     fig.savefig(out_filepath, dpi=300)
     plt.close(fig)
     
-for Q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
-    plot_R_vs_W_grid(Q2_value=Q2)
+
+    
+    
+def estimate_bin_size_err_data(Q2_values, regions,
+                               R_source,
+                               n=2,
+                               E_beam=10.6,
+                               ao_in_dir="tables_from_Yannick/fine_binning/AO",
+                               convert_ub_to_GeV2=True,
+                               divide_by_Gamma=True,
+                               epsabs=1e-8,
+                               epsrel=1e-6,
+                               quad_limit=200):
+    """
+    Estimate finite-binning (data-grid) integration bias for truncated CN moments,
+    using AO model as the 'truth' shape.
+
+    For each Q2 and each region:
+      1) "continuous" AO moment: integrate x^{n-2} * F2_AO(x,Q2) dx via quad over spline
+      2) "coarse" AO moment: evaluate the same spline on THE SAME x-grid used for data trapz,
+         then integrate with np.trapz on that grid
+      3) return ratio = continuous / coarse and frac_diff = (continuous - coarse)/continuous
+
+    Parameters
+    ----------
+    Q2_values : iterable of float
+        Q2 values to process.
+    regions : iterable of str
+        Regions: "1st","2nd","3rd","partial","tail","full", etc. (same mapping as your code).
+    R_source : str
+        Passed to F2_from_xsect_data(Q2_value, R_source=R_source) to get the DATA x-grid.
+        (We only use its x grid; the AO model provides y-values.)
+    n : int
+        CN moment order.
+    E_beam, ao_in_dir, convert_ub_to_GeV2, divide_by_Gamma : as in your AO extraction.
+    epsabs, epsrel, quad_limit : quad settings.
+
+    Returns
+    -------
+    pandas.DataFrame with columns:
+        Q2, region, n, x_lo, x_hi,
+        moment_AO_cont, moment_AO_trapz_on_data_grid,
+        ratio_cont_over_trapz, frac_diff
+    """
+
+    M = 0.9382720813
+
+    # --- region -> W bounds (same logic as in your functions) ---
+    W_min_data = 1.15
+    Wmax1 = 1.35
+    Wmin2 = Wmax1
+    Wmax2 = 1.60
+    Wmin3 = Wmax2
+    Wmax3 = 2.0
+
+    def region_bounds_W(Q2, region):
+        W_max = 2.25 if np.isclose(Q2, 9.699, atol=1e-3) else 2.50
+        reg = str(region).lower().strip()
+        region_map = {
+            "1": (W_min_data, Wmax1), "r1": (W_min_data, Wmax1), "first": (W_min_data, Wmax1), "1st": (W_min_data, Wmax1),
+            "2": (Wmin2, Wmax2),      "r2": (Wmin2, Wmax2),      "second": (Wmin2, Wmax2),      "2nd": (Wmin2, Wmax2),
+            "3": (Wmin3, Wmax3),      "r3": (Wmin3, Wmax3),      "third": (Wmin3, Wmax3),       "3rd": (Wmin3, Wmax3),
+            "partial": (W_min_data, Wmax3), "part": (W_min_data, Wmax3),
+            "tail": (Wmax3, W_max),
+            "full": (W_min_data, W_max), "all": (W_min_data, W_max),
+        }
+        if reg not in region_map:
+            raise ValueError(f"Unknown region='{region}'. Use one of: {sorted(region_map.keys())}")
+        return region_map[reg]
+
+    def x_of_W(W, Q2):
+        return Q2 / (W*W - M*M + Q2)
+
+    rows = []
+
+    for Q2_value in Q2_values:
+        Q2 = float(Q2_value)
+
+        # --- DATA x-grid (we only need x) ---
+        df_data = F2_from_xsect_data(Q2_value, R_source=R_source)
+        x_data = df_data["x"].to_numpy(dtype=float)
+        mask = np.isfinite(x_data)
+        x_data = x_data[mask]
+        if x_data.size < 2:
+            # no usable grid -> fill NaNs for all regions
+            for region in regions:
+                rows.append({
+                    "Q2": Q2_value, "region": region, "n": n,
+                    "x_lo": np.nan, "x_hi": np.nan,
+                    "moment_AO_cont": np.nan,
+                    "moment_AO_trapz_on_data_grid": np.nan,
+                    "ratio_cont_over_trapz": np.nan,
+                    "frac_diff": np.nan
+                })
+            continue
+
+        # sort increasing x
+        x_data = np.sort(x_data)
+
+        # --- AO model F2(W) on its native grid, then build spline in x ---
+        W_ao, F2W_ao = sigma_LT_to_F2_AO_model(
+            fixed_Q2=Q2,
+            W_out=None,
+            E_beam=E_beam,
+            in_dir=ao_in_dir,
+            convert_ub_to_GeV2=convert_ub_to_GeV2,
+            divide_by_Gamma=divide_by_Gamma
+        )
+        W_ao = np.asarray(W_ao, dtype=float)
+        F2W_ao = np.asarray(F2W_ao, dtype=float)
+
+        x_ao = Q2 / (W_ao*W_ao - M*M + Q2)
+        m2 = np.isfinite(x_ao) & np.isfinite(F2W_ao)
+        x_ao = x_ao[m2]
+        F2_ao = F2W_ao[m2]
+
+        if x_ao.size < 2:
+            for region in regions:
+                rows.append({
+                    "Q2": Q2_value, "region": region, "n": n,
+                    "x_lo": np.nan, "x_hi": np.nan,
+                    "moment_AO_cont": np.nan,
+                    "moment_AO_trapz_on_data_grid": np.nan,
+                    "ratio_cont_over_trapz": np.nan,
+                    "frac_diff": np.nan
+                })
+            continue
+
+        o = np.argsort(x_ao)
+        x_ao = x_ao[o]
+        F2_ao = F2_ao[o]
+
+        x_u, idx = np.unique(x_ao, return_index=True)
+        F2_u = F2_ao[idx]
+
+        if x_u.size < 2:
+            for region in regions:
+                rows.append({
+                    "Q2": Q2_value, "region": region, "n": n,
+                    "x_lo": np.nan, "x_hi": np.nan,
+                    "moment_AO_cont": np.nan,
+                    "moment_AO_trapz_on_data_grid": np.nan,
+                    "ratio_cont_over_trapz": np.nan,
+                    "frac_diff": np.nan
+                })
+            continue
+
+        F2_spline_x = CubicSpline(x_u, F2_u, bc_type="natural", extrapolate=False)
+
+        def integrand(xv):
+            f2 = F2_spline_x(xv)
+            if not np.isfinite(f2):
+                return 0.0
+            return (xv ** (n - 2)) * float(f2)
+
+        # --- loop over regions ---
+        for region in regions:
+            W_lo, W_hi = region_bounds_W(Q2, region)
+            xb1 = x_of_W(W_lo, Q2)
+            xb2 = x_of_W(W_hi, Q2)
+            x_lo_bound = min(xb1, xb2)
+            x_hi_bound = max(xb1, xb2)
+
+            # intersect bounds with BOTH: data-x coverage and AO-x coverage
+            lo = max(x_lo_bound, float(x_data[0]), float(x_u[0]))
+            hi = min(x_hi_bound, float(x_data[-1]), float(x_u[-1]))
+
+            if not (lo < hi):
+                rows.append({
+                    "Q2": Q2_value, "region": region, "n": n,
+                    "x_lo": lo, "x_hi": hi,
+                    "moment_AO_cont": 0.0,
+                    "moment_AO_trapz_on_data_grid": 0.0,
+                    "ratio_cont_over_trapz": np.nan,
+                    "frac_diff": np.nan
+                })
+                continue
+
+            # --- 1) continuous AO integral over [lo, hi] ---
+            I_cont, _ = quad(integrand, lo, hi,
+                             epsabs=epsabs, epsrel=epsrel, limit=quad_limit)
+            I_cont = float(I_cont)
+
+            # --- 2) AO integrated with trapz on the SAME x-grid as data integration ---
+            # Build x_seg exactly like you do for data: endpoints + interior data points in (lo,hi)
+            mid = (x_data > lo) & (x_data < hi)
+            x_seg = np.concatenate(([lo], x_data[mid], [hi]))
+
+            # Evaluate AO spline at those points
+            F2_seg = F2_spline_x(x_seg)
+            # Safety: if any NaNs due to extrapolate=False (shouldn't happen due to intersection)
+            finite = np.isfinite(F2_seg) & np.isfinite(x_seg)
+            x_seg = x_seg[finite]
+            F2_seg = F2_seg[finite]
+
+            if x_seg.size < 2:
+                rows.append({
+                    "Q2": Q2_value, "region": region, "n": n,
+                    "x_lo": lo, "x_hi": hi,
+                    "moment_AO_cont": I_cont,
+                    "moment_AO_trapz_on_data_grid": np.nan,
+                    "ratio_cont_over_trapz": np.nan,
+                    "frac_diff": np.nan
+                })
+                continue
+
+            w = x_seg ** (n - 2)
+            y = w * F2_seg
+            I_trapz = float(np.trapz(y, x_seg))
+
+            ratio = (I_cont / I_trapz) if (np.isfinite(I_trapz) and I_trapz != 0.0) else np.nan
+            frac_diff = ((I_cont - I_trapz) / I_cont) if (np.isfinite(I_cont) and I_cont != 0.0) else np.nan
+
+            rows.append({
+                "Q2": Q2_value, "region": region, "n": n,
+                "x_lo": lo, "x_hi": hi,
+                "moment_AO_continious": I_cont,
+                "moment_AO_trapz_on_data_grid": I_trapz,
+                "ratio_cont_over_trapz": ratio,
+                "frac_diff": frac_diff
+            })
+
+    return pd.DataFrame(rows)
+  
+    
+print(estimate_bin_size_err_data([2.774,3.244,3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699],["1st"], R_source="AO"))
     
     
 #calculate_epsilon_yannick(2.774)

@@ -4,11 +4,12 @@ from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
 import os
 import pandas as pd
+from matplotlib.ticker import ScalarFormatter
 
 
 from functions_pdf import get_lo_pdf_interpolators, get_nlo_pdf_interpolators, compute_pdf_cross_sections, compute_pdf_cross_sections_from_F2_FL, get_R_from_F1F2, calculate_moment_LO_pdf
 from functions_anl_osaka import compute_cross_section_model, compute_1pi_cross_section_model, compute_2pi_cross_section_model, interpolate_structure_functions, sigma_LT_to_F2_AO_model, calculate_moment_AO_model
-from functions_data import calc_trunc_moment_data, F2_from_xsect_data, x_of_W
+from functions_data import calc_trunc_moment_data, F2_from_xsect_data, x_of_W, estimate_bin_size_err_data
 
 
 def compare_F1(Q2_list, pdf_set_lo, pdf_set_nlo, num_points=400, W_cutoff=4.0):
@@ -868,11 +869,11 @@ def plot_F2_from_data_AO_PDF(Q2_value, W_cutoff = 2.0, show_lines = False, vs_wh
             h_naked, = plt.plot(W_vals[good], F2_NLO_vals[good], label=f"{pdf_set_nlo}: NLO + LT", color="green", ls="dashed", lw=1.3)
         if np.isfinite(F2_NLO_TMC_HT_vals).any():
             good = np.isfinite(F2_NLO_TMC_HT_vals)
-            h_bht, = plt.plot(W_vals[good], F2_NLO_TMC_HT_vals[good], label=f"{pdf_set_nlo}: NLO + LT + TMC (OPE) + HT", color="orange", ls="solid", lw=1.3)
+            h_bht, = plt.plot(W_vals[good], F2_NLO_TMC_HT_vals[good], label=f"{pdf_set_nlo}: NLO + LT + TMC (OPE) + HT", color="red", ls="-.", lw=1.3)
     if tag == "W" and have_ao:
         good = np.isfinite(F2_AO_vals)
         if good.any():
-            plt.plot(W_vals[good], F2_AO_vals[good], label="AO model extended", color="red", ls="solid", lw=1.3)
+            plt.plot(W_vals[good], F2_AO_vals[good], label="AO model extended", color="black", ls="solid", lw=1.3)
      # --- PDF curves on x-axis ---
     if tag == "x" and have_lo:
        x_pdf = x_of_W(W_vals, Q2_value)
@@ -891,13 +892,13 @@ def plot_F2_from_data_AO_PDF(Q2_value, W_cutoff = 2.0, show_lines = False, vs_wh
         good = np.isfinite(F2_NLO_TMC_HT_vals) & np.isfinite(x_pdf)
         if good.any():
             p = np.argsort(x_pdf[good])
-            plt.plot(x_pdf[good][p], F2_NLO_TMC_HT_vals[good][p], label=f"{pdf_set_nlo}: NLO + LT + TMC (OPE) + HT",color="orange", ls="solid", lw=1.3)
+            plt.plot(x_pdf[good][p], F2_NLO_TMC_HT_vals[good][p], label=f"{pdf_set_nlo}: NLO + LT + TMC (OPE) + HT",color="red", ls="-.", lw=1.3)
     if tag == "x" and have_ao:
         x_ao = x_of_W(W_vals, Q2_value)
         good = np.isfinite(F2_AO_vals) & np.isfinite(x_ao)
         if good.any():
             p = np.argsort(x_ao[good])
-            plt.plot(x_ao[good][p], F2_AO_vals[good][p], label="AO model extended", color="red", ls="solid", lw=1.3)
+            plt.plot(x_ao[good][p], F2_AO_vals[good][p], label="AO model extended", color="black", ls="solid", lw=1.3)
     # --------------------- Vertical lines and labels for different W (or x) regions --------------------------
     if show_lines:
         y_top = 0.95
@@ -1116,7 +1117,7 @@ def plot_M2_truncated_vs_Q2(pdf_set, error_mode="correlated", in_dir="../getF1F2
          # -------------------------  AO model prediction ---------------------
         good_ao = np.isfinite(ao_m2[region])
         if np.any(good_ao):
-            plt.plot(Q2s[good_ao], ao_m2[region][good_ao], color="red",marker="o", linestyle="-", markersize=3, label="AO model")
+            plt.plot(Q2s[good_ao], ao_m2[region][good_ao], color="magenta",marker="o", linestyle="-", markersize=3, label="AO model")
             
             # -------------------------  LO PDF prediction -----------------------
         good_lo = np.isfinite(lo_pdf_m2[region])
@@ -1126,7 +1127,7 @@ def plot_M2_truncated_vs_Q2(pdf_set, error_mode="correlated", in_dir="../getF1F2
         #--------------------NLO PDF-based  prediction--------------------
 
         plt.plot(Q2s, naked[region], marker="^", markersize=3, linestyle="-",color = "green", label="CJ15nlo: NLO+LT")
-        plt.plot(Q2s, brady[region], marker="s", markersize=3, linestyle="-",color = "orange", label="CJ15nlo: NLO+LT+TMC+HT")
+        plt.plot(Q2s, brady[region], marker="s", markersize=3, linestyle="-",color = "red", label="CJ15nlo: NLO+LT+TMC+HT")
         # ----  experimental points with error bars ----
         good = np.isfinite(exp_m2[region]) & np.isfinite(exp_e2[region])
         if np.any(good):
@@ -1149,9 +1150,102 @@ def plot_M2_truncated_vs_Q2(pdf_set, error_mode="correlated", in_dir="../getF1F2
         
     
     print(f"Saved to: {out_dir}")
+    
+    
+    
+    
+def plot_bin_size_ratio_vs_Q2(out_dir="Bin_size_ratio_plots",
+                              out_name="AO_bin_size_ratio_vs_Q2_4panel.png",
+                              regions=("1st", "2nd", "3rd", "part"),
+                              title=None):
+    """
+    Make a 4-panel (2x2) plot of ratio_cont_over_trapz vs Q2 for selected regions:
+      "1st", "2nd", "3rd", "part" (default)
+
+    Parameters
+    ----------
+    df_bin : pandas.DataFrame
+        Output of estimate_bin_size_err_data(). Must contain columns:
+          - Q2, region, ratio_cont_over_trapz
+    out_dir : str
+        Output directory.
+    out_name : str
+        Output filename.
+    regions : tuple/list of str
+        Regions to plot (in this order). Must be 4 for a 2x2 layout.
+    title : str or None
+        Optional overall title.
+
+    Saves
+    -----
+    out_dir/out_name
+    """
+
+    df_bin = estimate_bin_size_err_data([2.774,3.244,3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699],regions, R_source="AO")
+    required = {"Q2", "region", "ratio_cont_over_trapz"}
+    missing = required - set(df_bin.columns)
+    if missing:
+        raise ValueError(f"df_bin is missing required columns: {sorted(missing)}")
+
+    if len(regions) != 4:
+        raise ValueError(f"Expected 4 regions for 2x2 plot, got {len(regions)}: {regions}")
+
+    os.makedirs(out_dir, exist_ok=True)
+
+    # Normalize region strings for selection, but keep original labels for titles
+    df = df_bin.copy()
+    df["region_norm"] = df["region"].astype(str).str.lower().str.strip()
+
+    region_norm_map = {r: str(r).lower().strip() for r in regions}
+
+    fig, axes = plt.subplots(2, 2, figsize=(10, 7), sharex=True)
+    axes = axes.ravel()
+
+    for ax, r in zip(axes, regions):
+        fmt = ScalarFormatter(useOffset=False)
+        fmt.set_scientific(False)
+        ax.yaxis.set_major_formatter(fmt)
+        rnorm = region_norm_map[r]
+        d = df[df["region_norm"] == rnorm].copy()
+
+        # If region not present, just annotate and continue
+        if d.empty:
+            ax.text(0.5, 0.5, f"No data for '{r}'", ha="center", va="center", transform=ax.transAxes)
+            ax.set_title(str(r))
+            ax.axhline(1.0, linewidth=1)
+            ax.grid(True, alpha=0.3)
+            continue
+
+        d = d.sort_values("Q2")
+        Q2 = d["Q2"].to_numpy(dtype=float)
+        ratio = d["ratio_cont_over_trapz"].to_numpy(dtype=float)
+
+        # Plot points only (no connecting line)
+        ax.plot(Q2, ratio, linestyle="None", marker="o", markersize=4)
+
+        ax.set_title(str(r))
+        ax.axhline(1.0, linewidth=1)
+        ax.grid(True, alpha=0.3)
+
+        ax.set_ylabel(r"$I_{\mathrm{continious}}/I_{\mathrm{trapz(data\ grid)}}$")
+
+    for ax in axes[-2:]:
+        ax.set_xlabel(r"$Q^2\ (\mathrm{GeV}^2)$")
+
+    if title:
+        fig.suptitle(title)
+
+    fig.tight_layout()
+    out_path = os.path.join(out_dir, out_name)
+    fig.savefig(out_path, dpi=200)
+    plt.close(fig)
+
+    return out_path
 
 
 #-----------------------------------------------------------------------------------------------------------
+plot_bin_size_ratio_vs_Q2()
+
 #for Q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
     #plot_F2_from_data_diff_R_sources(Q2_value=Q2, vs_what = "w")
     #plot_F2_from_data_diff_R_sources(Q2_value=Q2, vs_what = "x")
@@ -1175,8 +1269,8 @@ def plot_M2_truncated_vs_Q2(pdf_set, error_mode="correlated", in_dir="../getF1F2
 #compare_F2([1.025,2.025, 2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699, 15.0, 20.0],pdf_set="CJ15nlo", W_cutoff=20.0)
 #compare_F2([1.025, 2.025, 2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699, 15.0, 20.0],pdf_set="CJ15nlo", W_cutoff=30.0)
 
-for Q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
-    compare_xsecs(fixed_Q2=Q2, beam_energy=10.6, pdf_set_lo="CJ15lo", pdf_set_nlo="CJ15nlo", W_cutoff=2.0)    
+#for Q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
+    #compare_xsecs(fixed_Q2=Q2, beam_energy=10.6, pdf_set_lo="CJ15lo", pdf_set_nlo="CJ15nlo", W_cutoff=2.0)    
 
 
 
