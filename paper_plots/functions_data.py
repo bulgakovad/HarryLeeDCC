@@ -648,9 +648,139 @@ def estimate_bin_size_err_data(Q2_values, regions,
             })
 
     return pd.DataFrame(rows)
-  
+
+#------------------------------------------------------Patrick data helper function -------
+from functools import lru_cache
+@lru_cache(maxsize=None)
+def _load_patrick_table(xlsx_path):
+    """
+    Read Patrick's xlsx once, normalize column names, and return a clean DataFrame.
+    Cached so repeated compare_xsecs() calls do not keep re-reading the spreadsheet.
+    """
+    xlsx_path = os.path.abspath(xlsx_path)
+    df = pd.read_excel(xlsx_path)
+
+    # Normalize headers: "mean prediction" -> "mean_prediction", etc.
+    df = df.rename(columns={
+        col: col.strip().lower().replace(" ", "_")
+        for col in df.columns
+    })
+
+    needed = [
+        "q2", "w",
+        "mean_prediction", "lower_prediction", "upper_prediction",
+        "mean_thy", "lower_thy", "upper_thy",
+    ]
+
+    missing = [col for col in needed if col not in df.columns]
+    if missing:
+        raise ValueError(
+            f"Patrick table is missing required columns: {missing}. "
+            f"Available columns: {list(df.columns)}"
+        )
+
+    # Force numeric where it matters
+    for col in needed:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    return df
+
+
+def read_patrick_data(
+    series,          # "prediction" or "thy"
+    fixed_Q2,
+    beam_energy=None,
+    W_min=None,
+    W_max=None,
+    xlsx_path="from_patrick/CLAS12.xlsx",
+    q2_tol=1e-3,
+    convert_nb_to_mub=True,
+):
+    """
+    Return Patrick data in a format directly usable by plt.errorbar().
+
+    Parameters
+    ----------
+    series : str
+        Either "prediction" or "thy".
+    fixed_Q2 : float
+        Desired Q2 slice.
+    beam_energy : ignored
+        Kept only for interface compatibility with compare_xsecs().
+    W_min, W_max : float or None
+        Optional W window.
+    xlsx_path : str
+        Path to Patrick xlsx file.
+    q2_tol : float
+        Absolute tolerance for Q2 matching via np.isclose.
+    convert_nb_to_mub : bool
+        If True, convert nb/GeV^3 -> microbarn/GeV^3 by multiplying by 1e-3.
+
+    Returns
+    -------
+    W : np.ndarray
+    y : np.ndarray
+    yerr : np.ndarray of shape (2, N)
+        Asymmetric error bars in matplotlib format:
+        yerr[0] = lower error = mean - lower
+        yerr[1] = upper error = upper - mean
+    have_data : bool
+    """
+    _ = beam_energy  # intentionally ignored
+
+    series = series.strip().lower()
+    series_map = {
+        "prediction": ("mean_prediction", "lower_prediction", "upper_prediction"),
+        "thy": ("mean_thy", "lower_thy", "upper_thy"),
+    }
+
+    if series not in series_map:
+        raise ValueError(
+            f"Unsupported series='{series}'. Use 'prediction' or 'thy'."
+        )
+
+    mean_col, low_col, up_col = series_map[series]
+    df = _load_patrick_table(xlsx_path)
+
+    # Select requested Q2 slice
+    q2_mask = np.isclose(df["q2"].to_numpy(dtype=float), fixed_Q2,
+                         atol=q2_tol, rtol=0.0)
+
+    sub = df.loc[q2_mask, ["w", mean_col, low_col, up_col]].copy()
+
+    # Optional W cuts
+    if W_min is not None:
+        sub = sub[sub["w"] >= W_min]
+    if W_max is not None:
+        sub = sub[sub["w"] <= W_max]
+
+    # Drop junk rows, sort, and avoid accidental duplicate W entries
+    sub = (
+        sub.dropna(subset=["w", mean_col, low_col, up_col])
+           .sort_values("w")
+           .drop_duplicates(subset="w", keep="first")
+    )
+
+    if sub.empty:
+        return np.array([]), np.array([]), np.empty((2, 0)), False
+
+    scale = 1e-3 if convert_nb_to_mub else 1.0
+
+    W = sub["w"].to_numpy(dtype=float)
+    y = sub[mean_col].to_numpy(dtype=float) * scale
+    y_low_abs = sub[low_col].to_numpy(dtype=float) * scale
+    y_up_abs  = sub[up_col].to_numpy(dtype=float) * scale
+
+    # Convert absolute bounds -> matplotlib asymmetric errors
+    yerr_low = np.maximum(y - y_low_abs, 0.0)
+    yerr_up  = np.maximum(y_up_abs - y, 0.0)
+    yerr = np.vstack([yerr_low, yerr_up])
+
+    return W, y, yerr, True
+
+
     
-print(estimate_bin_size_err_data([2.774,3.244,3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699],["1st"], R_source="AO"))
+#print(estimate_bin_size_err_data([2.774,3.244,3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699],["1st"], R_source="AO"))
     
     
 #calculate_epsilon_yannick(2.774)
