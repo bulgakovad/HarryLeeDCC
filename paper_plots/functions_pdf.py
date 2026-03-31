@@ -85,7 +85,6 @@ def get_lo_pdf_interpolators(fixed_Q2, pdf_set, q2_tol=1e-4):
 
 def get_nlo_pdf_interpolators(fixed_Q2, pdf_set, q2_tol=1e-4):
     
-
     folder  = f"../getF1F2/Output/Output_{pdf_set}"
     f1_file = f"{folder}/F1.txt"
     f2_file = f"{folder}/F2.txt"
@@ -171,6 +170,63 @@ def get_nlo_pdf_interpolators(fixed_Q2, pdf_set, q2_tol=1e-4):
             F2_naked_i, F2_brady_i, F2_bradyHT_i,
             FL_naked_i, FL_brady_i, FL_bradyHT_i,
             W_sorted)
+
+def get_nlo_HT_only_pdf_interpolators(fixed_Q2, pdf_set, q2_tol=1e-4):
+    folder  = f"../getF1F2/Output/Output_{pdf_set}"
+    f1_file = f"{folder}/F1_HT_only.txt"
+    f2_file = f"{folder}/F2_HT_only.txt"
+
+    df1 = pd.read_csv(f1_file, sep=r"\s+", header=None,
+                      names=["Q2","W","F1_HT_only"])
+    df2 = pd.read_csv(f2_file, sep=r"\s+", header=None,
+                      names=["Q2","W","F2_HT_only"])
+    
+    # Helper: safe interpolator with sorting + cubic→linear fallback
+    def _make_interp(W, Y, kind="cubic"):
+        W = np.asarray(W, dtype=float)
+        Y = np.asarray(Y, dtype=float)
+        # sort & unique by W (keep first occurrence)
+        order = np.argsort(W)
+        Ws, Ys = W[order], Y[order]
+        # drop duplicate W
+        if np.any(np.diff(Ws) == 0):
+            uniq_idx = np.concatenate(([0], np.where(np.diff(Ws) != 0)[0] + 1))
+            Ws, Ys = Ws[uniq_idx], Ys[uniq_idx]
+        # fallback if too short for cubic
+        use_kind = kind if Ws.size >= 4 else "linear"
+        return interp1d(Ws, Ys, kind=use_kind, bounds_error=False, fill_value="extrapolate")
+
+    # Single NaN-producing callable
+    def _nan_i(W):
+        W = np.asarray(W, dtype=float)
+        return np.full_like(W, np.nan, dtype=float)
+
+    # Masks (more forgiving to float noise)
+    mask1 = np.isclose(df1["Q2"].to_numpy(), fixed_Q2, atol=q2_tol, rtol=0.0)
+    mask2 = np.isclose(df2["Q2"].to_numpy(), fixed_Q2, atol=q2_tol, rtol=0.0)
+
+    # F2 (required)
+    if not mask2.any():
+        raise ValueError(f"Q²={fixed_Q2} not found in F2 file.")
+    W2         = df2.loc[mask2, "W"].to_numpy()
+    F2_HT_only   = df2.loc[mask2, "F2_HT_only"].to_numpy()
+    F2_HT_only_i   = _make_interp(W2, F2_HT_only)
+
+
+    # F1 (optional)
+    if mask1.any():
+        W1           = df1.loc[mask1, "W"].to_numpy()
+        F1_HT_only     = df1.loc[mask1, "F1_HT_only"].to_numpy()
+        F1_HT_only_i      = _make_interp(W1, F1_HT_only)
+
+    else:
+        W1 = None
+        F1_HT_only_i = _nan_i
+
+    
+    W_sorted = np.sort(W2)  # base the range on F2 only
+
+    return (F1_HT_only_i, F2_HT_only_i, W_sorted)
 
 
     
@@ -615,7 +671,7 @@ def calculate_moment_LO_pdf(Q2_value, region, pdf_set="CJ15lo", n=2,
 
 
 
-
+#print(get_nlo_HT_only_pdf_interpolators(2.774, "CJ15nlo"))  # test call to get_nlo_HT_only_pdf_interpolators
 
 
 # Get PDF-based xsec tables for various Q2 and beam energies

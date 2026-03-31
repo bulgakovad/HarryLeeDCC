@@ -7,7 +7,7 @@ import pandas as pd
 from matplotlib.ticker import ScalarFormatter
 
 
-from functions_pdf import get_lo_pdf_interpolators, get_nlo_pdf_interpolators, compute_pdf_cross_sections, compute_pdf_cross_sections_from_F2_FL, get_R_from_F1F2, calculate_moment_LO_pdf
+from functions_pdf import get_lo_pdf_interpolators, get_nlo_pdf_interpolators, compute_pdf_cross_sections, compute_pdf_cross_sections_from_F2_FL, get_R_from_F1F2, calculate_moment_LO_pdf, get_nlo_HT_only_pdf_interpolators
 from functions_anl_osaka import compute_cross_section_model, compute_1pi_cross_section_model, compute_2pi_cross_section_model, interpolate_structure_functions, sigma_LT_to_F2_AO_model, calculate_moment_AO_model
 from functions_data import calc_trunc_moment_data, F2_from_xsect_data, x_of_W, estimate_bin_size_err_data, read_patrick_data
 
@@ -236,7 +236,7 @@ def compare_xsecs( what_to_plot: list,
                    interp_file="input_data/wempx.dat",
                    onepi_file="input_data/wemp-pi.dat",
                    num_points=200,
-                   patrick_series=None                  # None, "prediction", "thy", or ["prediction","thy"]
+                   patrick_series=None          # None, "prediction", "thy", or ["prediction","thy"]
                    ):
     
     out_dir = f"compare_xsecs_{pdf_set_nlo}"
@@ -296,7 +296,14 @@ def compare_xsecs( what_to_plot: list,
         W_nlo_min = W_nlo_max = None
         # dummies so loop runs
         F1_NLO = F1_NLO_TMC = F1_NLO_TMC_HT = F2_NLO = F2_NLO_TMC = F2_NLO_TMC_HT = FL_NLO = FL_NLO_TMC = FL_NLO_TMC_HT = lambda w: np.nan
-
+    #----------------------------------------NLO + HT only. No TMC ---------------------------------------
+    try:
+        (F1_NLO_HT_only, F2_NLO_HT_only, W_nlo_ht_only_range) = get_nlo_HT_only_pdf_interpolators(fixed_Q2, pdf_set=pdf_set_nlo)
+        have_nlo_ht_only = True
+    except Exception:
+        have_nlo_ht_only = False
+        W_nlo_min = W_nlo_max = None
+        F1_NLO_HT_only = F2_NLO_HT_only = lambda w: np.nan
     # ---------- Build curves on W grid ----------
     for w in W_vals:
         # ANL total xsec
@@ -358,6 +365,8 @@ def compare_xsecs( what_to_plot: list,
     pdf_nlo_tmc_xs        = np.asarray(pdf_nlo_tmc_xs)       if have_nlo else np.array([])
     pdf_nlo_tmc_ht_xs      = np.asarray(pdf_nlo_tmc_ht_xs)    if have_nlo else np.array([])
     pdf_nlo_tmc_ht_F2FL_xs    = np.asarray(pdf_nlo_tmc_ht_F2FL_xs) if have_nlo else np.array([])
+    #New: HT only, no TMC
+    pdf_nlo_ht_only_xs = np.asarray([compute_pdf_cross_sections(w, fixed_Q2, beam_energy, F1_interp=F1_NLO_HT_only, F2_interp=F2_NLO_HT_only) for w in W_vals]) if have_nlo_ht_only else np.array([])
 
     # ---------- RGA data  ----------
     have_rga = False
@@ -513,6 +522,14 @@ def compare_xsecs( what_to_plot: list,
             handles.append(h_f2fl)
         else:
             print("Unable to plot NLO + TMC + HT PDF curve calculated from F2 and FL")
+    if "NLO_HT_only" in what_to_plot:
+        if np.isfinite(pdf_nlo_ht_only_xs).any():
+            good_ht_only = np.isfinite(pdf_nlo_ht_only_xs)
+            h_nlo_ht_only, = plt.plot(W_vals[good_ht_only], pdf_nlo_ht_only_xs[good_ht_only],
+                                     label=f"{pdf_set_nlo}: NLO + LT + HT (no TMC)", color="purple", ls="dashdot", lw=2)
+            handles.append(h_nlo_ht_only)
+        else:
+            print("Unable to plot NLO + HT (no TMC) PDF curve")
 
     if "data_rga" in what_to_plot:
         if have_rga:
@@ -543,7 +560,7 @@ def compare_xsecs( what_to_plot: list,
                 patrick_data_HT["thy"]["y"],
                 yerr=patrick_data_HT["thy"]["yerr"],
                 fmt="^",
-                color="cyan",
+                color="blue",
                 capsize=1,
                 ms=1.5,
                 label="Patrick thy w/ HT"
@@ -1385,13 +1402,14 @@ for Q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
          "data_rga",
          #"AO",
          #"AO_1pi", 
-         #"NLO_TMC_HT", 
-         "NLO_LT", 
+         "NLO_TMC_HT", 
+         #"NLO_LT", 
          #"LO_LT", 
          #"NLO_TMC",
+         "NLO_HT_only",
          #"NLO_TMC_HT_F2FL",
-         #"patrick_HT",
-         "patrick_no_HT"
+         "patrick_HT",
+         #"patrick_no_HT"
          ],
         fixed_Q2=Q2,
         beam_energy=10.6,
