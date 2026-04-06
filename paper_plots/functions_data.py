@@ -669,7 +669,7 @@ def _load_patrick_table(xlsx_path):
     needed = [
         "q2", "w",
         "mean_prediction", "lower_prediction", "upper_prediction",
-        "mean_thy", "lower_thy", "upper_thy",
+        "mean_thy", "lower_thy", "upper_thy", "mean_f2", "lower_f2", "upper_f2", "mean_fl", "lower_fl", "upper_fl"
     ]
 
     missing = [col for col in needed if col not in df.columns]
@@ -702,7 +702,7 @@ def read_patrick_data(
     Parameters
     ----------
     series : str
-        Either "prediction" or "thy".
+         "prediction", "thy" , "f2", or "fl" to select which columns to read from the spreadsheet.
     fixed_Q2 : float
         Desired Q2 slice.
     beam_energy : ignored
@@ -732,11 +732,13 @@ def read_patrick_data(
     series_map = {
         "prediction": ("mean_prediction", "lower_prediction", "upper_prediction"),
         "thy": ("mean_thy", "lower_thy", "upper_thy"),
+        "f2": ("mean_f2", "lower_f2", "upper_f2"),
+        "fl": ("mean_fl", "lower_fl", "upper_fl")
     }
 
     if series not in series_map:
         raise ValueError(
-            f"Unsupported series='{series}'. Use 'prediction' or 'thy'."
+            f"Unsupported series='{series}'. Use 'prediction', 'thy', 'f2', or 'fl'."
         )
 
     mean_col, low_col, up_col = series_map[series]
@@ -781,7 +783,7 @@ def read_patrick_data(
 
     
 #print(estimate_bin_size_err_data([2.774,3.244,3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699],["1st"], R_source="AO"))
-    
-    
+#print(read_patrick_data("f2", fixed_Q2=2.774, xlsx_path="from_patrick/CLAS12.xlsx")) 
+
 #calculate_epsilon_yannick(2.774)
 #calculate_epsilon_valerii(2.774)

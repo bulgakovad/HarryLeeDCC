@@ -123,20 +123,51 @@ def compare_F1(Q2_list, pdf_set_lo, pdf_set_nlo, num_points=400, W_cutoff=4.0):
         print("Saved →", out_path)
 
 
-def compare_F2(Q2_list, pdf_set_lo, pdf_set_nlo, num_points=400, W_cutoff=4.0):
+def compare_F2(Q2_list: list, what_to_show: list, pdf_set_lo: str, pdf_set_nlo: str, W_cutoff=2.5, num_points=400):
     """
     For each Q² in Q2_list, plot:
         - F2 LO (CJ15) 
         - F2 NLO LT (CJ15)
         - F2 NLO TMC only (CJ15)
         - F2 NLO TMC + HT (CJ15)
+        - Patrick's prediction (NEW)
     """
      
     out_dir = f"compare_F2_{pdf_set_nlo}"
     os.makedirs(out_dir, exist_ok=True)
 
     for Q2 in Q2_list:
-        have_lo = have_nlo = False
+        have_lo = have_nlo = have_pat_HT = have_pat_no_HT = have_strfun_world = have_strfun_clas =False
+        
+        #CLAS+World interpolation data from strfun website
+        try:
+            strfun_file = f"strfun_F1F2_data/vs_w/clas_and_world_data/F2_vs_w_Q2={Q2}.dat"
+            if os.path.isfile(strfun_file):
+                strfun_world = np.genfromtxt(strfun_file, names=["W", "Quantity", "Uncertainty"],
+                                    delimiter="\t", skip_header=1)
+                m = (strfun_world["W"] >= 1.1) & (strfun_world["W"] <= W_cutoff)
+                W_strfun_world = strfun_world["W"][m]
+                sigma_strfun_world = strfun_world["Quantity"][m] 
+                err_strfun_world = strfun_world["Uncertainty"][m] 
+                have_strfun_world = (W_strfun_world.size > 0)
+        except Exception:
+            have_strfun_world = False
+            
+            
+         #CLAS only interpolation data from strfun website
+        try:
+            strfun_file = f"strfun_F1F2_data/vs_w/clas_only_data/F2_vs_w_Q2={Q2}.dat"
+            if os.path.isfile(strfun_file):
+                strfun_clas = np.genfromtxt(strfun_file, names=["W", "Quantity", "Uncertainty"],
+                                    delimiter="\t", skip_header=1)
+                m = (strfun_clas["W"] >= 1.1) & (strfun_clas["W"] <= W_cutoff)
+                W_strfun_clas = strfun_clas["W"][m]
+                sigma_strfun_clas = strfun_clas["Quantity"][m] 
+                err_strfun_clas = strfun_clas["Uncertainty"][m]
+                have_strfun_clas = (W_strfun_clas.size > 0)
+        except Exception:
+            have_strfun_clas = False   
+            
 
         # LO
         try:
@@ -157,6 +188,38 @@ def compare_F2(Q2_list, pdf_set_lo, pdf_set_nlo, num_points=400, W_cutoff=4.0):
         if not (have_lo or have_nlo):
             print(f"[WARNING] Q²={Q2}: no LO/NLO F2 available — skipping.")
             continue
+        
+        # Patrick with HT
+        try :
+            W_pat_HT, F2_pat_HT, err_pat_HT, have_pat_HT = read_patrick_data(
+                series="f2",
+                fixed_Q2=Q2,
+                beam_energy=None,   # ignored inside helper, kept for interface compatibility
+                W_min=1.15,
+                W_max=W_cutoff,
+                xlsx_path="from_patrick/CLAS12.xlsx",
+                q2_tol=1e-3,
+                convert_nb_to_mub=False,
+            )
+        except Exception:
+            have_pat_HT = False
+            print(f"No Patrick HT F2 data found for Q2={Q2}")
+            
+        # Patrick no HT
+        try :
+            W_pat_no_HT, F2_pat_no_HT, err_pat_no_HT, have_pat_no_HT = read_patrick_data(
+                series="f2",
+                fixed_Q2=Q2,
+                beam_energy=None,   # ignored inside helper, kept for interface compatibility
+                W_min=1.15,
+                W_max=W_cutoff,
+                xlsx_path="from_patrick/CLAS12_no_HT.xlsx",
+                q2_tol=1e-3,
+                convert_nb_to_mub=False,
+            )
+        except Exception:
+            have_pat_no_HT = False
+            print(f"No Patrick without HT F2 data found for Q2={Q2}")
 
         # W grid
         wmins = []
@@ -186,35 +249,76 @@ def compare_F2(Q2_list, pdf_set_lo, pdf_set_nlo, num_points=400, W_cutoff=4.0):
             except Exception: pass
             try: F2_NLO_TMC_HT_vals[m]    = F2_NLO_TMC_HT(W_vals[m])
             except Exception: pass
+            
+        # Patrick data
            
 
         # Plot
         plt.figure(figsize=(8, 6))
         handles = [plt.Line2D([], [], color='white', label=f"Q² = {Q2:.3f} GeV²")]
+        
+        if "strfun_world" in what_to_show:
+            if have_strfun_world:
+                h_strfun = plt.errorbar(W_strfun_world, sigma_strfun_world, yerr=err_strfun_world, fmt='o', color='black', label="CLAS + World data interpolation", markersize=2)
+                handles.append(h_strfun)
+            else:
+                print("Unable to plot CLAS + World data interpolation")
+                
+        if "strfun_clas" in what_to_show:
+            if have_strfun_clas:
+                h_strfun_clas = plt.errorbar(W_strfun_clas, sigma_strfun_clas, yerr=err_strfun_clas, fmt='o', color='purple', label="CLAS-only data interpolation", markersize=2)
+                handles.append(h_strfun_clas)
+            else:
+                print("Unable to plot CLAS-only data interpolation")
 
-        if np.isfinite(F2_LO_vals).any():
-            good = np.isfinite(F2_LO_vals)
-            h_lo, = plt.plot(W_vals[good], F2_LO_vals[good],
-                             label=f"{pdf_set_lo}: LO + LT", color="blue", ls="dotted", lw=2)
-            handles.append(h_lo)
+        if "LO_LT" in what_to_show:
+            if np.isfinite(F2_LO_vals).any():
+                good = np.isfinite(F2_LO_vals)
+                h_lo, = plt.plot(W_vals[good], F2_LO_vals[good],
+                                 label=f"{pdf_set_lo}: LO + LT", color="blue", ls="dotted", lw=2)
+                handles.append(h_lo)
+            else:
+                print("Unable to plot LO + LT PDF curve")
 
-        if np.isfinite(F2_NLO_vals).any():
-            good = np.isfinite(F2_NLO_vals)
-            h_naked, = plt.plot(W_vals[good], F2_NLO_vals[good],
-                                label=f"{pdf_set_nlo}: NLO + LT", color="magenta", ls="solid", lw=2)
-            handles.append(h_naked)
+        
+        if "NLO_LT" in what_to_show:
+            if np.isfinite(F2_NLO_vals).any():
+                good = np.isfinite(F2_NLO_vals)
+                h_naked, = plt.plot(W_vals[good], F2_NLO_vals[good],
+                                    label=f"{pdf_set_nlo}: NLO + LT", color="magenta", ls="solid", lw=2)
+                handles.append(h_naked)
+            else:
+                print("Unable to plot NLO + LT PDF curve")
 
-        if np.isfinite(F2_NLO_TMC_vals).any():
-            good = np.isfinite(F2_NLO_TMC_vals)
-            h_b, = plt.plot(W_vals[good], F2_NLO_TMC_vals[good],
-                            label=f"{pdf_set_nlo}: NLO + LT + TMC (OPE)", color="green", ls="dashdot", lw=1)
-            handles.append(h_b)
+        if "NLO_TMC" in what_to_show:
+            if np.isfinite(F2_NLO_TMC_vals).any():
+                good = np.isfinite(F2_NLO_TMC_vals)
+                h_b, = plt.plot(W_vals[good], F2_NLO_TMC_vals[good],
+                                label=f"{pdf_set_nlo}: NLO + LT + TMC (OPE)", color="green", ls="dashdot", lw=1)
+                handles.append(h_b)
+            else:
+                print("Unable to plot NLO + LT + TMC (OPE) PDF curve")
 
-        if np.isfinite(F2_NLO_TMC_HT_vals).any():
-            good = np.isfinite(F2_NLO_TMC_HT_vals)
-            h_bht, = plt.plot(W_vals[good], F2_NLO_TMC_HT_vals[good],
+        if "NLO_TMC_HT" in what_to_show:
+            if np.isfinite(F2_NLO_TMC_HT_vals).any():
+                good = np.isfinite(F2_NLO_TMC_HT_vals)
+                h_bht, = plt.plot(W_vals[good], F2_NLO_TMC_HT_vals[good],
                               label=f"{pdf_set_nlo}: NLO + LT + TMC (OPE) + HT", color="orange", ls="dashdot", lw=2)
             handles.append(h_bht)
+        
+        if "Patrick_HT" in what_to_show:
+            if have_pat_HT:
+                h_pat_ht = plt.errorbar(W_pat_HT, F2_pat_HT, yerr=err_pat_HT, fmt='o', color='red', label="Patrick's F2 with HT", markersize=2)
+                handles.append(h_pat_ht)
+            else:
+                print("Unable to plot Patrick's F2 with HT")
+                
+        if "Patrick_no_HT" in what_to_show:
+            if have_pat_no_HT:
+                h_pat_no_ht = plt.errorbar(W_pat_no_HT, F2_pat_no_HT, yerr=err_pat_no_HT, fmt='o', color='purple', label="Patrick's F2 without HT", markersize=2)
+                handles.append(h_pat_no_ht)
+            else:
+                print("Unable to plot Patrick's F2 without HT")
 
         
 
@@ -263,11 +367,17 @@ def compare_xsecs( what_to_plot: list,
 
 
     # Containers
-    anl_full_xs, anl_onepi_xs = [], []
+    anl_full_xs, anl_onepi_xs, anl_two_pi_xs = [], [], []
     if fixed_Q2 > 3.0:
-        have_AO = have_AO_1pi = False
+        have_AO = have_AO_1pi = have_AO_2pi = False
+        have_AO_ext = True
+
     else:
-        have_AO = have_AO_1pi = True
+        have_AO = have_AO_1pi = have_AO_2pi = True
+        have_AO_ext = False  # Do not plot Ext model for Q2 < 3 there is original model!
+        if fixed_Q2 == 2.774:
+            have_AO_ext = True  # Exception for 2.774 GeV^2 where we have both original and extended models -> show only extended
+            have_AO = False
     
     pdf_lo_xs = []
     pdf_nlo_xs, pdf_nlo_tmc_xs, pdf_nlo_tmc_ht_xs  = [], [], []
@@ -302,7 +412,7 @@ def compare_xsecs( what_to_plot: list,
         have_nlo_ht_only = True
     except Exception:
         have_nlo_ht_only = False
-        W_nlo_min = W_nlo_max = None
+        #W_nlo_min = W_nlo_max = None
         F1_NLO_HT_only = F2_NLO_HT_only = lambda w: np.nan
     # ---------- Build curves on W grid ----------
     for w in W_vals:
@@ -317,6 +427,12 @@ def compare_xsecs( what_to_plot: list,
             anl_onepi_xs.append(compute_1pi_cross_section_model(w, fixed_Q2, beam_energy, file_path=onepi_file, verbose=False))
         except Exception:
             anl_onepi_xs.append(np.nan)
+            
+        # 2π ANL xsec 
+        try:
+            anl_two_pi_xs.append(compute_2pi_cross_section_model(w, fixed_Q2, beam_energy))
+        except Exception:
+            anl_two_pi_xs.append(np.nan)
 
         # LO 
         if have_lo and (W_lo_min <= w <= W_lo_max):
@@ -360,6 +476,7 @@ def compare_xsecs( what_to_plot: list,
     # ---------- Arrays ----------
     anl_full_xs           = np.asarray(anl_full_xs)
     anl_onepi_xs          = np.asarray(anl_onepi_xs)
+    anl_two_pi_xs         = np.asarray(anl_two_pi_xs)
     pdf_lo_xs             = np.asarray(pdf_lo_xs)        if have_lo  else np.array([])
     pdf_nlo_xs            = np.asarray(pdf_nlo_xs)    if have_nlo else np.array([])
     pdf_nlo_tmc_xs        = np.asarray(pdf_nlo_tmc_xs)       if have_nlo else np.array([])
@@ -384,23 +501,22 @@ def compare_xsecs( what_to_plot: list,
         have_rga = False
         
        # ---------- AO extended model ----------
-    have_AO_ext = False
-    try:
+    if have_AO_ext:
         AO_ext_file = f"tables_from_Yannick/fine_binning/AO/Wdist_Q2_{fixed_Q2}_GLOBAL_LT.dat"
-        if os.path.isfile(AO_ext_file):
+        try:
             AO_ext = np.genfromtxt(
                 AO_ext_file,
-                names=["W", "sigma"],   # second column is the cross section
-                delimiter=None,         # whitespace-separated
-                skip_header=1           # set to 1 only if there's a header line
+                names=["W", "sigma"],
+                delimiter=None,
+                skip_header=1
             )
             m = (AO_ext["W"] >= W_lo) & (AO_ext["W"] <= W_hi)
-            W_AO_ext     = AO_ext["W"][m]
+            W_AO_ext = AO_ext["W"][m]
             sigma_AO_ext = AO_ext["sigma"][m]
-            have_AO_ext  = (W_AO_ext.size > 0)
-    except Exception:
-        have_AO_ext = False
-        print("No AO extended model data found:")
+            have_AO_ext = (W_AO_ext.size > 0)
+        except Exception as e:
+            have_AO_ext = False
+            print(f"Failed to load {AO_ext_file}: {e}")
         
         # ---------- Patrick data ----------
     patrick_data_HT = {}
@@ -450,8 +566,7 @@ def compare_xsecs( what_to_plot: list,
     handles = [plt.Line2D([], [], color='white',
                label=f"Q² = {fixed_Q2:.3f} GeV², E = {beam_energy} GeV")]
     
-    if "AO" in what_to_plot:
-        have_AO = False # disabled for now
+    if "AO_original" in what_to_plot:
         if have_AO:
             good_anl_full = np.isfinite(anl_full_xs) & (W_vals <= 2.0)
             h_model_full, = plt.plot(W_vals[good_anl_full], anl_full_xs[good_anl_full],
@@ -459,7 +574,8 @@ def compare_xsecs( what_to_plot: list,
             handles.append(h_model_full)
         else: 
             print("Unable to plot ANL-Osaka original model")
-
+            
+    if "AO_ext" in what_to_plot:
         if have_AO_ext:
                 h_AO_ext = plt.errorbar(W_AO_ext, sigma_AO_ext,
                                      color="red", ls="solid", lw=2,
@@ -467,15 +583,22 @@ def compare_xsecs( what_to_plot: list,
                 handles.append(h_AO_ext)
         else:
             print("Unable to plot ANL-Osaka extended model")
-    
+            
     if "AO_1pi" in what_to_plot:
         if have_AO_1pi:
             good_anl_1pi = np.isfinite(anl_onepi_xs)
-            h_model_1pi, = plt.plot(W_vals[good_anl_1pi], anl_onepi_xs[good_anl_1pi],
-                                 label=r"ANL-Osaka 1$\pi$ contribution", color="black", ls="dashed", lw=2)
+            h_model_1pi, = plt.plot(W_vals[good_anl_1pi], anl_onepi_xs[good_anl_1pi], label=r"ANL-Osaka 1$\pi$ contribution", color="black", ls="dashed", lw=2)
             handles.append(h_model_1pi)
         else:
             print("Unable to plot ANL-Osaka 1π contribution")
+            
+    if "AO_2pi" in what_to_plot:
+        if have_AO_2pi:
+            good_anl_2pi = np.isfinite(anl_two_pi_xs)
+            h_model_2pi, = plt.plot(W_vals[good_anl_2pi], anl_two_pi_xs[good_anl_2pi], label="(full - 1π) contribution", color="blue", ls="dashed", lw=2)
+            handles.append(h_model_2pi)
+        else:
+            print("Unable to plot ANL-Osaka (full - 1π) contribution")
 
     if "LO_LT" in what_to_plot:
         if have_lo and np.isfinite(pdf_lo_xs).any():
@@ -499,7 +622,7 @@ def compare_xsecs( what_to_plot: list,
         if np.isfinite(pdf_nlo_tmc_xs).any():
             good_nlo_tmc = np.isfinite(pdf_nlo_tmc_xs)
             h_pdf_nlo_tmc, = plt.plot(W_vals[good_nlo_tmc], pdf_nlo_tmc_xs[good_nlo_tmc],
-                                  label=f"{pdf_set_nlo}: NLO + LT + TMC(OPE)", color="green", ls="dashdot", lw=2)
+                                  label=f"{pdf_set_nlo}: NLO + LT + TMC(OPE)", color="purple", ls="dashdot", lw=2)
             handles.append(h_pdf_nlo_tmc)
         else:
             print("Unable to plot NLO + LT + TMC PDF curve")
@@ -550,7 +673,7 @@ def compare_xsecs( what_to_plot: list,
                 color="magenta",
                 capsize=1,
                 ms=1.5,
-                label="Patrick prediction w/ HT"
+                label="Patrick prediction with HT"
             )
             handles.append(h_pat_pred)
 
@@ -563,7 +686,7 @@ def compare_xsecs( what_to_plot: list,
                 color="blue",
                 capsize=1,
                 ms=1.5,
-                label="Patrick thy w/ HT"
+                label="Patrick thy with HT"
             )
             handles.append(h_pat_thy)
         else:
@@ -579,7 +702,7 @@ def compare_xsecs( what_to_plot: list,
                 color="green",
                 capsize=1,
                 ms=1.5,
-                label="Patrick prediction no HT"
+                label="Patrick prediction without HT"
             )
             handles.append(h_pat_pred)
 
@@ -589,10 +712,10 @@ def compare_xsecs( what_to_plot: list,
                 patrick_data_no_HT["thy"]["y"],
                 yerr=patrick_data_no_HT["thy"]["yerr"],
                 fmt="^",
-                color="blue",
+                color="red",
                 capsize=1,
                 ms=1.5,
-                label="Patrick thy no HT"
+                label="Patrick thy without HT"
             )
             handles.append(h_pat_thy)
         else:
@@ -611,16 +734,16 @@ def compare_xsecs( what_to_plot: list,
     if handles:
         plt.legend(handles=handles, loc="lower right", fontsize="small")
         
-    if any(x in what_to_plot for x in ["LO_LT", "NLO_LT", "NLO_TMC", "NLO_TMC_HT", "NLO_TMC_HT_F2FL"]):
-        ax = plt.gca()  # get current axes
-        ax.text(
-            0.02, 0.98,                      # (x, y) in axes coordinates
-            f"{pdf_set_nlo}",               # the text
-            transform=ax.transAxes,  
-            fontsize=20,         
-            fontweight="bold",
-            ha="left", va="top",
-        )
+    #if any(x in what_to_plot for x in ["LO_LT", "NLO_LT", "NLO_TMC", "NLO_TMC_HT", "NLO_TMC_HT_F2FL"]):
+    #    ax = plt.gca()  # get current axes
+    #    ax.text(
+    #        0.02, 0.98,                      # (x, y) in axes coordinates
+    #        f"{pdf_set_nlo}",               # the text
+    #        transform=ax.transAxes,  
+    #        fontsize=20,         
+    #        fontweight="bold",
+    #        ha="left", va="top",
+    #    )
     
     fname = f"{out_dir}/compare_xsecs_Q2={fixed_Q2}_E={beam_energy}_W_max={W_cutoff}.pdf"
     plt.savefig(fname, dpi=300)
@@ -1396,28 +1519,31 @@ def plot_bin_size_ratio_vs_Q2(out_dir="Bin_size_ratio_plots",
 
 #-----------------------------------------------------------------------------------------------------------
 #plot_bin_size_ratio_vs_Q2()
-for Q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
-    compare_xsecs(
-        [
-         "data_rga",
-         #"AO",
-         #"AO_1pi", 
-         "NLO_TMC_HT", 
-         #"NLO_LT", 
-         #"LO_LT", 
-         #"NLO_TMC",
-         "NLO_HT_only",
-         #"NLO_TMC_HT_F2FL",
-         "patrick_HT",
-         #"patrick_no_HT"
-         ],
-        fixed_Q2=Q2,
-        beam_energy=10.6,
-        pdf_set_lo="CJ15lo",
-        pdf_set_nlo="CJ15nlo",
-        W_cutoff=2.0,
-        patrick_series=["thy"]
-    )
+    
+#for Q2 in [1.0, 2.774, 3.244, 5.5, 9.699]:
+#    compare_xsecs(
+#        [
+#         "data_rga",
+#         "AO_original",
+#         "AO_ext",
+#         "AO_1pi", 
+#         "AO_2pi",
+#         #"NLO_TMC_HT", 
+#         #"NLO_LT", 
+#         #"LO_LT", 
+#         #"NLO_TMC",
+#         #"NLO_HT_only",
+#         #"NLO_TMC_HT_F2FL",
+#         #"patrick_HT",
+#         #"patrick_no_HT"
+#         ],
+#        fixed_Q2=Q2,
+#        beam_energy=10.6,
+#        pdf_set_lo="CJ15lo",
+#        pdf_set_nlo="CJ15nlo",
+#        W_cutoff=3.0,
+#        patrick_series=["thy"]
+#    )
 
 
 #for Q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
@@ -1436,12 +1562,8 @@ for Q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
 
 
     
-#compare_F2([1.025,2.025, 2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699, 15.0, 20.0], pdf_set_lo="CJ15lo", pdf_set_nlo="CJ15nlo", W_cutoff=1.8)
-#compare_F2([2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699],pdf_set_lo = "CJ15lo", pdf_set_nlo="CJ15nlo", W_cutoff=2.5)
-#compare_F2([1.025,2.025, 2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699, 15.0, 20.0],pdf_set="CJ15nlo", W_cutoff=5.0)
-#compare_F2([1.025,2.025, 2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699, 15.0, 20.0],pdf_set="CJ15nlo", W_cutoff=10.0)
-#compare_F2([1.025,2.025, 2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699, 15.0, 20.0],pdf_set="CJ15nlo", W_cutoff=20.0)
-#compare_F2([1.025, 2.025, 2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699, 15.0, 20.0],pdf_set="CJ15nlo", W_cutoff=30.0)
+compare_F2([1.75, 2.774], ["Patrick_no_HT", "NLO_TMC", "strfun_world"], pdf_set_lo="CJ15lo", pdf_set_nlo="CJ15nlo", W_cutoff=1.8)
+
 
 #for Q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
     #compare_xsecs(fixed_Q2=Q2, beam_energy=10.6, pdf_set_lo="CJ15lo", pdf_set_nlo="CJ15nlo", W_cutoff=2.0)    

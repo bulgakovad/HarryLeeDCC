@@ -23,11 +23,11 @@ def mainF2F1(pdf_set):
   
   out_dir = f"Output/Output_{pdf_set}"
   os.makedirs(out_dir, exist_ok=True)
-  f2 = open(f"{out_dir}/F2_HT_only.txt","w")
-  f1 = open(f"{out_dir}/F1_HT_only.txt","w")
+  f2 = open(f"{out_dir}/F2_temp.txt","w")
+  f1 = open(f"{out_dir}/F1_temp.txt","w")
   #fl = open(f"{out_dir}/FL_HT_only.txt","w")
-  for Q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
-    for i in range(0,72):
+  for Q2 in [2.774]:
+    for i in range(0,50):
       W = 1.07+0.02*i                         #M_prot+mpi+i*0.01
       nu = (W**2 - M**2 + Q2)/(2*M)
       x = Q2/(2.0*M*nu)
@@ -40,38 +40,38 @@ def mainF2F1(pdf_set):
       g2=thy.integrator(g2integrand,xN,1.0)
       
       F2naked=thy.get_F2(x,Q2,'p')
-      #F2moffat=(1.0+rho)/(2.0*rho**2)*thy.get_F2(xN,Q2,'p')
-      #F2brady0=(1.0+rho)/(2.0*rho)*F2moffat
-      #F2brady=F2brady0+3.0*x*(rho**2-1.0)/(2.0*rho**4)*(h2+(rho**2-1.0)/(2.0*x*rho)*g2)
-      #F2bradyht=F2brady*(1.+CHT/Q2)
+      F2moffat=(1.0+rho)/(2.0*rho**2)*thy.get_F2(xN,Q2,'p')
+      F2brady0=(1.0+rho)/(2.0*rho)*F2moffat
+      F2brady=F2brady0+3.0*x*(rho**2-1.0)/(2.0*rho**4)*(h2+(rho**2-1.0)/(2.0*x*rho)*g2)
+      F2bradyht=F2brady*(1.+CHT/Q2)
 
       FLnaked=thy.get_FL(x,Q2,'p')
-      #FLmoffat=(1.0+rho)/2.0*thy.get_FL(xN,Q2,'p')
-      #FLbrady0=(1.0+rho)**2/(4.0*rho)*thy.get_FL(xN,Q2,'p')
-      #FLbrady=FLbrady0+x*(rho**2-1.0)/rho**2*(h2+(rho**2-1.0)/(2.0*x*rho)*g2)
-      #FLbradyht=FLbrady*(1.+CHT/Q2)
-
-      #F1brady0=(1.0+rho)/(2.0*rho)*thy.get_F1(xN,Q2,'p')
-      #F1brady=F1brady0+(rho**2-1.0)/(4.0*rho**2)*(h2+(rho**2-1.0)/(2.0*x*rho)*g2)
-      #F1brady0alt=((1.0+4.0*thy.M**2/Q2*x**2)*F2brady0-FLbrady0)/(2.0*x)
-      #F1bradyalt=((1.0+4.0*thy.M**2/Q2*x**2)*F2brady-FLbrady)/(2.0*x)
+      FLmoffat=(1.0+rho)/2.0*thy.get_FL(xN,Q2,'p')
+      FLbrady0=(1.0+rho)**2/(4.0*rho)*thy.get_FL(xN,Q2,'p')
+      FLbrady=FLbrady0+x*(rho**2-1.0)/rho**2*(h2+(rho**2-1.0)/(2.0*x*rho)*g2)
+      FLbradyht=FLbrady*(1.+CHT/Q2)
+      
+      F1brady0=(1.0+rho)/(2.0*rho)*thy.get_F1(xN,Q2,'p')
+      F1brady=F1brady0+(rho**2-1.0)/(4.0*rho**2)*(h2+(rho**2-1.0)/(2.0*x*rho)*g2)
+      F1brady0alt=((1.0+4.0*thy.M**2/Q2*x**2)*F2brady0-FLbrady0)/(2.0*x)
+      F1bradyalt=((1.0+4.0*thy.M**2/Q2*x**2)*F2brady-FLbrady)/(2.0*x)
       
       #-----------------------------------------------------NOT PART OF THE ORIGINAL CODE. I added this-----------------------------------------------------------------------------------------
-      #F1bradyht=((1.0+4.0*thy.M**2/Q2*x**2)*F2bradyht-FLbradyht)/(2.0*x) # Can I do this? Analogous to F1bradyalt
+      F1bradyht=((1.0+4.0*thy.M**2/Q2*x**2)*F2bradyht-FLbradyht)/(2.0*x) # Can I do this? Analogous to F1bradyalt
       F1naked=((1.0+4.0*thy.M**2/Q2*x**2)*F2naked-FLnaked)/(2.0*x) # Can I do this? Analogous to F1bradyalt
       
-      F2ht_only=F2naked*(1.+CHT/Q2) # Just to see the effect of CHT on F2naked. Dr. Joo asked me to do this
-      F1ht_only=F1naked*(1.+CHT/Q2) # Just to see the effect of CHT on F1naked. Dr. Joo asked me to do this
+      #F2ht_only=F2naked*(1.+CHT/Q2) # Just to see the effect of CHT on F2naked. Dr. Joo asked me to do this
+      #F1ht_only=F1naked*(1.+CHT/Q2) # Just to see the effect of CHT on F1naked. Dr. Joo asked me to do this
       #----------------------------------------------------------------------------------------------------------------------------------------------
       
       #Write out -----------------------------------------------------------------------------------------------------------------------------------
-      #f2.write(str(Q2)+"\t"+str(W)+"\t"+str(F2naked)+"\t"+str(F2moffat)+"\t"+str(F2brady0)+"\t"+str(F2brady)+"\t"+str(F2bradyht)+"\n")
+      f2.write(str(Q2)+"\t"+str(W)+"\t"+str(F2naked)+"\t"+str(F2moffat)+"\t"+str(F2brady0)+"\t"+str(F2brady)+"\t"+str(F2bradyht)+"\n")
       #fl.write(str(Q2)+"\t"+str(W)+"\t"+str(FLnaked)+"\t"+str(FLmoffat)+"\t"+str(FLbrady0)+"\t"+str(FLbrady)+"\t"+str(FLbradyht)+"\n")
-      #f1.write(str(Q2)+"\t"+str(W)+"\t"+str(F1naked)+"\t"+str(F1brady)+"\t"+str(F1bradyalt)+"\t"+str(F1bradyht)+"\n")
+      f1.write(str(Q2)+"\t"+str(W)+"\t"+str(F1naked)+"\t"+str(F1brady)+"\t"+str(F1bradyalt)+"\t"+str(F1bradyht)+"\n")
       
       #HT only, no TMC
-      f2.write(str(Q2)+"\t"+str(W)+"\t"+str(F2ht_only)+"\n")
-      f1.write(str(Q2)+"\t"+str(W)+"\t"+str(F1ht_only)+"\n")
+      #f2.write(str(Q2)+"\t"+str(W)+"\t"+str(F2ht_only)+"\n")
+      #f1.write(str(Q2)+"\t"+str(W)+"\t"+str(F1ht_only)+"\n")
       
 
 #	Writes FL fixed Q2 files
@@ -248,7 +248,7 @@ def mainTMC():
 if __name__== "__main__":
      #mainTMC()
     #mainF2trunc("CJ15nlo")
-     mainF2F1("CJ15nlo")
+     mainF2F1("JAM19PDF_proton_nlo")
      #mainF2F1("CT18NLO")
     #mainFLQ2()
 #    mainFLW()
