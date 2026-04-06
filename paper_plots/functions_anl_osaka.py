@@ -72,6 +72,55 @@ def interpolate_structure_functions(file_path, target_W, target_Q2):
     return W1_interp, W2_interp
 
 
+def W1_W2_to_F1_F2(W1, W2, W, Q2, M=0.938272):
+    """
+    Convert W1, W2 -> F1, F2 at given W, Q2.
+    """
+    nu = (W**2 - M**2 + Q2) / (2.0 * M)
+    F1 = M * W1
+    F2 = nu * W2
+    return F1, F2
+
+
+def get_AO_interpolators(file_path, fixed_Q2, W_min=1.1, W_max=2.5, num_points=400, M=0.938272):
+    """
+    Build AO-model callables F1(W), F2(W) at fixed Q2 using
+    interpolate_structure_functions().
+
+    No file loading here beyond what interpolate_structure_functions()
+    already does internally.
+
+    Returns:
+        (F1_AO_i, F2_AO_i, W_sorted)
+    """
+
+    def _eval_AO(W_in, which="F2"):
+        W_arr = np.atleast_1d(np.asarray(W_in, dtype=float))
+        out = np.full(W_arr.shape, np.nan, dtype=float)
+
+        for idx, W in np.ndenumerate(W_arr):
+            try:
+                W1, W2 = interpolate_structure_functions(file_path, float(W), fixed_Q2)
+                F1, F2 = W1_W2_to_F1_F2(W1, W2, float(W), fixed_Q2, M=M)
+                out[idx] = F1 if which == "F1" else F2
+            except Exception:
+                out[idx] = np.nan
+
+        if np.ndim(W_in) == 0:
+            return out.item()
+        return out
+
+    def F1_AO_i(W):
+        return _eval_AO(W, which="F1")
+
+    def F2_AO_i(W):
+        return _eval_AO(W, which="F2")
+
+    W_sorted = np.linspace(W_min, W_max, num_points)
+
+    return F1_AO_i, F2_AO_i, W_sorted
+
+
 def interpolate_structure_functions_1pi(file_path, target_W, target_Q2):
     """
     Bicubic interpolation of single-pion structure functions (W1, W2)
@@ -124,6 +173,8 @@ def interpolate_structure_functions_1pi(file_path, target_W, target_Q2):
     W2_interp = spl_W2(target_W, target_Q2)[0, 0]
 
     return W1_interp, W2_interp
+
+
 def compute_cross_section_model(W, Q2, beam_energy, file_path="input_data/wempx.dat", verbose=True):
     """
     Computes the differential cross section dσ/dW/dQ² for an electromagnetic (EM)

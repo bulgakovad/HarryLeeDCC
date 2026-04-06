@@ -8,7 +8,7 @@ from matplotlib.ticker import ScalarFormatter
 
 
 from functions_pdf import get_lo_pdf_interpolators, get_nlo_pdf_interpolators, compute_pdf_cross_sections, compute_pdf_cross_sections_from_F2_FL, get_R_from_F1F2, calculate_moment_LO_pdf, get_nlo_HT_only_pdf_interpolators
-from functions_anl_osaka import compute_cross_section_model, compute_1pi_cross_section_model, compute_2pi_cross_section_model, interpolate_structure_functions, sigma_LT_to_F2_AO_model, calculate_moment_AO_model
+from functions_anl_osaka import compute_cross_section_model, compute_1pi_cross_section_model, compute_2pi_cross_section_model, interpolate_structure_functions, sigma_LT_to_F2_AO_model, calculate_moment_AO_model, get_AO_interpolators
 from functions_data import calc_trunc_moment_data, F2_from_xsect_data, x_of_W, estimate_bin_size_err_data, read_patrick_data
 
 
@@ -131,13 +131,30 @@ def compare_F2(Q2_list: list, what_to_show: list, pdf_set_lo: str, pdf_set_nlo: 
         - F2 NLO TMC only (CJ15)
         - F2 NLO TMC + HT (CJ15)
         - Patrick's prediction (NEW)
+        - AO model (NEW)
     """
      
     out_dir = f"compare_F2_{pdf_set_nlo}"
     os.makedirs(out_dir, exist_ok=True)
 
     for Q2 in Q2_list:
-        have_lo = have_nlo = have_pat_HT = have_pat_no_HT = have_strfun_world = have_strfun_clas =False
+        have_lo = have_nlo = have_pat_HT = have_pat_no_HT = have_strfun_world = have_strfun_clas = have_ao_original = have_ao_ext = False
+        
+        # AO original
+        try:
+            _, F2_AO, W_ao_rng = get_AO_interpolators(
+                file_path="input_data/wempx.dat",
+                fixed_Q2=Q2,
+                W_min=1.1,
+                W_max=W_cutoff,
+                num_points=num_points
+            )
+            W_ao_min, W_ao_max = float(np.min(W_ao_rng)), float(np.max(W_ao_rng))
+            have_ao_original = True
+        except Exception as e:
+            have_ao_original = False
+            print(f"No AO model data found for Q2={Q2}: {e}")
+        
         
         #CLAS+World interpolation data from strfun website
         try:
@@ -221,12 +238,26 @@ def compare_F2(Q2_list: list, what_to_show: list, pdf_set_lo: str, pdf_set_nlo: 
             have_pat_no_HT = False
             print(f"No Patrick without HT F2 data found for Q2={Q2}")
 
-        # W grid
         wmins = []
-        if have_lo:  wmins.append(W_lo_min)
-        if have_nlo: wmins.append(W_nlo_min)
+        if have_lo:
+            wmins.append(W_lo_min)
+        if have_nlo:
+            wmins.append(W_nlo_min)
+        if have_ao_original:
+            wmins.append(W_ao_min)
+
         W_min_global = max(1.0, min(wmins)) if wmins else 1.0
         W_vals = np.linspace(W_min_global, W_cutoff, num_points)
+        
+        
+        #Evaluate AO original model
+        F2_AO_vals = np.full_like(W_vals, np.nan, dtype=float)
+        if have_ao_original:
+            m = (W_vals >= W_ao_min) & (W_vals <= W_ao_max)
+            try:
+                F2_AO_vals[m] = F2_AO(W_vals[m])
+            except Exception:
+                pass
 
         # Evaluate LO
         F2_LO_vals = np.full_like(W_vals, np.nan, dtype=float)
@@ -236,6 +267,8 @@ def compare_F2(Q2_list: list, what_to_show: list, pdf_set_lo: str, pdf_set_nlo: 
                 F2_LO_vals[m] = F2_LO(W_vals[m])
             except Exception:
                 pass
+            
+      
 
         # Evaluate NLO (LT, TMC only, TMC+HT, HT-only)
         F2_NLO_vals = np.full_like(W_vals, np.nan, dtype=float)
@@ -250,12 +283,29 @@ def compare_F2(Q2_list: list, what_to_show: list, pdf_set_lo: str, pdf_set_nlo: 
             try: F2_NLO_TMC_HT_vals[m]    = F2_NLO_TMC_HT(W_vals[m])
             except Exception: pass
             
+    
+
         # Patrick data
            
 
         # Plot
         plt.figure(figsize=(8, 6))
         handles = [plt.Line2D([], [], color='white', label=f"Q² = {Q2:.3f} GeV²")]
+        
+        
+        
+        if "AO_model" in what_to_show:
+            if np.isfinite(F2_AO_vals).any():
+                good = np.isfinite(F2_AO_vals)
+                h_ao, = plt.plot(
+                    W_vals[good], F2_AO_vals[good],
+                    label="AO model", color="brown", ls="solid", lw=2
+                )
+                handles.append(h_ao)
+            else:
+                print("Unable to plot AO model curve")
+
+ 
         
         if "strfun_world" in what_to_show:
             if have_strfun_world:
@@ -1391,17 +1441,17 @@ def plot_M2_truncated_vs_Q2(pdf_set, error_mode="correlated", in_dir="../getF1F2
          # -------------------------  AO model prediction ---------------------
         good_ao = np.isfinite(ao_m2[region])
         if np.any(good_ao):
-            plt.plot(Q2s[good_ao], ao_m2[region][good_ao], color="magenta",marker="o", linestyle="-", markersize=3, label="AO model")
+            plt.plot(Q2s[good_ao], ao_m2[region][good_ao], color="red",marker="o", linestyle="-", markersize=3, label="AO model")
             
             # -------------------------  LO PDF prediction -----------------------
         good_lo = np.isfinite(lo_pdf_m2[region])
         if np.any(good_lo):
-            plt.plot(Q2s[good_lo], lo_pdf_m2[region][good_lo], color="blue",marker="d", linestyle="-", markersize=3, label="CJ15lo: LO+LT")
+            plt.plot(Q2s[good_lo], lo_pdf_m2[region][good_lo], color="orange",marker="d", linestyle="-", markersize=3, label="CJ15lo: LO+LT")
         
         #--------------------NLO PDF-based  prediction--------------------
 
         plt.plot(Q2s, naked[region], marker="^", markersize=3, linestyle="-",color = "green", label="CJ15nlo: NLO+LT")
-        plt.plot(Q2s, brady[region], marker="s", markersize=3, linestyle="-",color = "red", label="CJ15nlo: NLO+LT+TMC+HT")
+        plt.plot(Q2s, brady[region], marker="s", markersize=3, linestyle="-",color = "blue", label="CJ15nlo: NLO+LT+TMC+HT")
         # ----  experimental points with error bars ----
         good = np.isfinite(exp_m2[region]) & np.isfinite(exp_e2[region])
         if np.any(good):
@@ -1520,18 +1570,18 @@ def plot_bin_size_ratio_vs_Q2(out_dir="Bin_size_ratio_plots",
 #-----------------------------------------------------------------------------------------------------------
 #plot_bin_size_ratio_vs_Q2()
     
-#for Q2 in [1.0, 2.774, 3.244, 5.5, 9.699]:
+#for Q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
 #    compare_xsecs(
 #        [
 #         "data_rga",
 #         "AO_original",
 #         "AO_ext",
-#         "AO_1pi", 
-#         "AO_2pi",
-#         #"NLO_TMC_HT", 
-#         #"NLO_LT", 
-#         #"LO_LT", 
-#         #"NLO_TMC",
+#         #"AO_1pi", 
+#         #"AO_2pi",
+#         "NLO_TMC_HT", 
+#         "NLO_LT", 
+#         "LO_LT", 
+#         "NLO_TMC",
 #         #"NLO_HT_only",
 #         #"NLO_TMC_HT_F2FL",
 #         #"patrick_HT",
@@ -1541,7 +1591,7 @@ def plot_bin_size_ratio_vs_Q2(out_dir="Bin_size_ratio_plots",
 #        beam_energy=10.6,
 #        pdf_set_lo="CJ15lo",
 #        pdf_set_nlo="CJ15nlo",
-#        W_cutoff=3.0,
+#        W_cutoff=2.5,
 #        patrick_series=["thy"]
 #    )
 
@@ -1562,7 +1612,7 @@ def plot_bin_size_ratio_vs_Q2(out_dir="Bin_size_ratio_plots",
 
 
     
-compare_F2([1.75, 2.774], ["Patrick_no_HT", "NLO_TMC", "strfun_world"], pdf_set_lo="CJ15lo", pdf_set_nlo="CJ15nlo", W_cutoff=1.8)
+compare_F2([1.75, 2.774], ["Patrick_HT", "NLO_TMC_HT", "strfun_world", "AO_model"], pdf_set_lo="CJ15lo", pdf_set_nlo="CJ15nlo", W_cutoff=1.8)
 
 
 #for Q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
