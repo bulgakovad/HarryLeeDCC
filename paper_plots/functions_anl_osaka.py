@@ -175,6 +175,8 @@ def interpolate_structure_functions_1pi(file_path, target_W, target_Q2):
     return W1_interp, W2_interp
 
 
+
+
 def compute_cross_section_model(W, Q2, beam_energy, file_path="input_data/wempx.dat", verbose=True):
     """
     Computes the differential cross section dσ/dW/dQ² for an electromagnetic (EM)
