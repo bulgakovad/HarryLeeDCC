@@ -375,9 +375,7 @@ def compute_2pi_cross_section_model(
 
     return dcs_diff
 
-
-
-
+  
 
 def make_sigma_LT_table(Q2):
     """
@@ -575,7 +573,7 @@ def sigma_LT_to_F2_AO_model(fixed_Q2,
 
 
 
-def calculate_moment_AO_model(Q2_value, region, n=2,
+def calculate_moment_AO_ext(Q2_value, region, n=2,
                               E_beam=10.6,
                               in_dir="tables_from_Yannick/fine_binning/AO",
                               convert_ub_to_GeV2=True,
@@ -697,7 +695,167 @@ def calculate_moment_AO_model(Q2_value, region, n=2,
 
 
 
+def calculate_moment_AO_original(Q2_value, region, n=2,
+                                 file_path="input_data/wempx.dat",
+                                 W_eval_min=1.10,
+                                 W_eval_max=2.00,
+                                 num_points=400,
+                                 M=0.9382720813):
+    """
+    Truncated Cornwall-Norton moment from the ORIGINAL AO model:
+        M_n(Q2; region) = ∫_{x_lo}^{x_hi} x^(n-2) F2(x,Q2) dx
 
+    Uses:
+      - get_AO_interpolators() to build F2(W) at fixed Q2
+      - converts W -> x
+      - cubic spline interpolation in x
+      - quad integration in x
+
+    Supported regions:
+      1, 2, 3, partial
+    Not supported:
+      tail, full
+    because the original AO model is only defined up to W = 2.0 GeV.
+    """
+
+    Q2 = float(Q2_value)
+
+    # --- region -> W bounds ---
+    W_min_data = 1.15
+    Wmax1 = 1.35
+    Wmin2 = Wmax1
+    Wmax2 = 1.60
+    Wmin3 = Wmax2
+    Wmax3 = 2.00   # original AO stops here
+
+    reg = str(region).lower().strip()
+    region_map = {
+        "1": (W_min_data, Wmax1), "r1": (W_min_data, Wmax1), "first": (W_min_data, Wmax1), "1st": (W_min_data, Wmax1),
+        "2": (Wmin2, Wmax2),      "r2": (Wmin2, Wmax2),      "second": (Wmin2, Wmax2),      "2nd": (Wmin2, Wmax2),
+        "3": (Wmin3, Wmax3),      "r3": (Wmin3, Wmax3),      "third": (Wmin3, Wmax3),       "3rd": (Wmin3, Wmax3),
+        "partial": (W_min_data, Wmax3), "part": (W_min_data, Wmax3),
+    }
+
+    forbidden = {"tail", "full", "all"}
+    if reg in forbidden:
+        raise ValueError(
+            f"Region '{region}' is not supported for ORIGINAL AO model "
+            f"because it is not defined above W = 2.0 GeV."
+        )
+
+    if reg not in region_map:
+        raise ValueError(
+            f"Unknown region='{region}'. Use one of: {sorted(region_map.keys())}"
+        )
+
+    W_lo, W_hi = region_map[reg]
+
+    # --- get AO original interpolators at fixed Q2 ---
+    F1_AO_i, F2_AO_i, W_sorted = get_AO_interpolators(
+        file_path=file_path,
+        fixed_Q2=Q2,
+        W_min=W_eval_min,
+        W_max=W_eval_max,
+        num_points=num_points,
+        M=M
+    )
+
+    W_sorted = np.asarray(W_sorted, dtype=float)
+    F2W = np.asarray(F2_AO_i(W_sorted), dtype=float)
+
+    # --- keep only requested W region ---
+    mask_region = (W_sorted >= W_lo) & (W_sorted <= W_hi)
+    W = W_sorted[mask_region]
+    F2W = F2W[mask_region]
+
+    # --- clean ---
+    mask = np.isfinite(W) & np.isfinite(F2W)
+    W = W[mask]
+    F2W = F2W[mask]
+
+    if W.size < 2:
+        return pd.DataFrame([{
+            "Q2": Q2_value,
+            "region": region,
+            "n": n,
+            "x_lo": np.nan,
+            "x_hi": np.nan,
+            "moment": 0.0,
+            "error": 0.0
+        }])
+
+    # --- convert W -> x ---
+    x = Q2 / (W * W - M * M + Q2)
+
+    mask = np.isfinite(x) & np.isfinite(F2W)
+    x = x[mask]
+    F2W = F2W[mask]
+
+    if x.size < 2:
+        return pd.DataFrame([{
+            "Q2": Q2_value,
+            "region": region,
+            "n": n,
+            "x_lo": np.nan,
+            "x_hi": np.nan,
+            "moment": 0.0,
+            "error": 0.0
+        }])
+
+    # --- sort by increasing x and remove duplicates for CubicSpline ---
+    o = np.argsort(x)
+    x = x[o]
+    F2W = F2W[o]
+
+    x_u, idx = np.unique(x, return_index=True)
+    F2_u = F2W[idx]
+
+    if x_u.size < 2:
+        return pd.DataFrame([{
+            "Q2": Q2_value,
+            "region": region,
+            "n": n,
+            "x_lo": np.nan,
+            "x_hi": np.nan,
+            "moment": 0.0,
+            "error": 0.0
+        }])
+
+    # --- integration bounds in x ---
+    x_lo = float(x_u[0])
+    x_hi = float(x_u[-1])
+
+    if x_lo >= x_hi:
+        return pd.DataFrame([{
+            "Q2": Q2_value,
+            "region": region,
+            "n": n,
+            "x_lo": x_lo,
+            "x_hi": x_hi,
+            "moment": 0.0,
+            "error": 0.0
+        }])
+
+    # --- cubic spline in x ---
+    F2_spline_x = CubicSpline(x_u, F2_u, bc_type="natural", extrapolate=False)
+
+    def integrand(xv):
+        f2 = F2_spline_x(xv)
+        if not np.isfinite(f2):
+            return 0.0
+        return (xv ** (n - 2)) * float(f2)
+
+    moment, _ = quad(integrand, x_lo, x_hi, epsabs=1e-8, epsrel=1e-6, limit=200)
+
+    return pd.DataFrame([{
+        "Q2": Q2_value,
+        "region": region,
+        "n": n,
+        "x_lo": x_lo,
+        "x_hi": x_hi,
+        "moment": float(moment),
+        "error": 0.0
+    }])
 
 
 

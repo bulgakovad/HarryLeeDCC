@@ -4,12 +4,12 @@ from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
 import os
 import pandas as pd
-from matplotlib.ticker import ScalarFormatter
+from matplotlib.ticker import MultipleLocator, ScalarFormatter
 
 
 from functions_pdf import get_lo_pdf_interpolators, get_nlo_pdf_interpolators, compute_pdf_cross_sections, compute_pdf_cross_sections_from_F2_FL, get_R_from_F1F2, calculate_moment_LO_pdf, get_nlo_HT_only_pdf_interpolators
-from functions_anl_osaka import compute_cross_section_model, compute_1pi_cross_section_model, compute_2pi_cross_section_model, interpolate_structure_functions, sigma_LT_to_F2_AO_model, calculate_moment_AO_model, get_AO_interpolators
-from functions_data import calc_trunc_moment_data, F2_from_xsect_data, x_of_W, estimate_bin_size_err_data, read_patrick_data
+from functions_anl_osaka import compute_cross_section_model, compute_1pi_cross_section_model, compute_2pi_cross_section_model, interpolate_structure_functions, sigma_LT_to_F2_AO_model, calculate_moment_AO_ext, get_AO_interpolators, calculate_moment_AO_original
+from functions_data import calc_trunc_moment_data, F2_from_xsect_data, x_of_W, estimate_bin_size_err_data, read_patrick_data, read_stas_data, strfun_F2_to_W2
 
 
 def compare_F1(Q2_list, pdf_set_lo, pdf_set_nlo, num_points=400, W_cutoff=4.0):
@@ -141,7 +141,7 @@ def compare_F2(Q2_list: list, what_to_show: list, pdf_set_lo: str, pdf_set_nlo: 
     os.makedirs(out_dir, exist_ok=True)
 
     for Q2 in Q2_list:
-        have_lo = have_nlo = have_pat_HT = have_pat_no_HT = have_strfun_world = have_strfun_clas = have_ao_original = have_ao_ext = have_rga = False
+        have_lo = have_nlo = have_pat_HT = have_pat_no_HT = have_strfun_world = have_strfun_clas = have_ao_original = have_ao_ext = have_ao_2pi = have_rga = have_stas = False
         
         # AO original
         try:
@@ -200,7 +200,7 @@ def compare_F2(Q2_list: list, what_to_show: list, pdf_set_lo: str, pdf_set_nlo: 
             print(f"No AO 1 pi data found for Q2={Q2}: {e}")
             
         
-        
+
         #CLAS+World interpolation data from strfun website
         try:
             strfun_file = f"strfun_F1F2_data/vs_w/clas_and_world_data/F2_vs_w_Q2={Q2}.dat"
@@ -228,8 +228,22 @@ def compare_F2(Q2_list: list, what_to_show: list, pdf_set_lo: str, pdf_set_nlo: 
                 err_strfun_clas = strfun_clas["Uncertainty"][m]
                 have_strfun_clas = (W_strfun_clas.size > 0)
         except Exception:
-            have_strfun_clas = False   
+            have_strfun_clas = False  
             
+            
+        # F2 from Stas
+                # F2 from Stas
+        try:
+            W_stas, F2_stas, F2_err_stas, have_stas = read_stas_data(
+                fixed_Q2=Q2,
+                channel="pi+ n + pi0 p",
+                W_min=1.1,
+                W_max=W_cutoff, # changed H Lee
+                csv_path="from_Stas/F2_interpolated.csv",
+            )
+        except Exception as e:
+            have_stas = False
+            print(f"No Stas F2 data found for Q2={Q2}: {e}")
             
         # F2  from RGA data
         try:
@@ -320,7 +334,7 @@ def compare_F2(Q2_list: list, what_to_show: list, pdf_set_lo: str, pdf_set_nlo: 
         #Evaluate AO original model
         F2_AO_vals = np.full_like(W_vals, np.nan, dtype=float)
         if have_ao_original:
-            m = (W_vals >= W_ao_min) & (W_vals <= W_ao_max)
+            m = (W_vals >= W_ao_min) & (W_vals <= 2.0)
             try:
                 F2_AO_vals[m] = F2_AO(W_vals[m])
             except Exception:
@@ -341,11 +355,22 @@ def compare_F2(Q2_list: list, what_to_show: list, pdf_set_lo: str, pdf_set_nlo: 
         # Evaluate AO 1 pi contribution
         F2_AO_1pi_vals = np.full_like(W_vals, np.nan, dtype=float)
         if have_ao_1pi:
-            m = (W_vals >= W_ao_min_1pi) & (W_vals <= W_ao_max_1pi)
+            m = (W_vals >= W_ao_min_1pi) & (W_vals <= 2.0)
             try:
                 F2_AO_1pi_vals[m] = F2_AO_1pi(W_vals[m])
             except Exception:
                 pass
+            
+        # AO 2 pi contribution (full - 1pi)
+        try:
+            if have_ao_original and have_ao_1pi:
+                F2_AO_2pi_vals = np.full_like(W_vals, np.nan, dtype=float)
+                m = (W_vals >= W_ao_min) & (W_vals <= 2.0)
+                if m.any():
+                    F2_AO_2pi_vals[m] = F2_AO(W_vals[m]) - F2_AO_1pi(W_vals[m])
+                have_ao_2pi = True
+        except Exception as e:
+            pass
 
 
         # Evaluate LO
@@ -373,20 +398,16 @@ def compare_F2(Q2_list: list, what_to_show: list, pdf_set_lo: str, pdf_set_nlo: 
             except Exception: pass
             
 
-           
-
         # Plot
         plt.figure(figsize=(8, 6))
         handles = [plt.Line2D([], [], color='white', label=f"Q² = {Q2:.3f} GeV²")]
-        
-        
         
         if "AO_model" in what_to_show:
             if np.isfinite(F2_AO_vals).any():
                 good = np.isfinite(F2_AO_vals)
                 h_ao, = plt.plot(
                     W_vals[good], F2_AO_vals[good],
-                    label="ANL-Osaka model", color="red", ls="solid", lw=2
+                    label="ANL-Osaka model full", color="red", ls="solid", lw=2
                 )
                 handles.append(h_ao)
             else:
@@ -394,7 +415,8 @@ def compare_F2(Q2_list: list, what_to_show: list, pdf_set_lo: str, pdf_set_nlo: 
                 
         if "AO_model_ext" in what_to_show:
             if np.isfinite(F2_AO_ext_vals).any():
-                good = np.isfinite(F2_AO_ext_vals)
+                w_ao_ext_max = 2.25 if Q2 == 9.699 else 2.5
+                good = np.isfinite(F2_AO_ext_vals) & (W_vals >= W_ao_ext_min) & (W_vals <= w_ao_ext_max)
                 h_ao_ext, = plt.plot(
                     W_vals[good], F2_AO_ext_vals[good],
                     label="ANL-Osaka model full (extended)", color="red", ls="solid", lw=2
@@ -413,6 +435,33 @@ def compare_F2(Q2_list: list, what_to_show: list, pdf_set_lo: str, pdf_set_nlo: 
                 handles.append(h_ao_1pi)
             else:
                 print("Unable to plot AO 1π contribution curve")
+                
+        if "Stas" in what_to_show:
+            if have_stas:
+                h_stas = plt.errorbar(
+                    W_stas,
+                    F2_stas,
+                    yerr=F2_err_stas,
+                    fmt="o",
+                    color="blue",
+                    label=f"from Stas interpolation: {"pi+ n + pi0 p"} channel",
+                    markersize=3,
+                    capsize=2
+                )
+                handles.append(h_stas)
+            else:
+                print(f"Unable to plot Stas F2 for Q2={Q2}")
+                
+        if "AO_model_2pi" in what_to_show:
+            if np.isfinite(F2_AO_2pi_vals).any():
+                good = np.isfinite(F2_AO_2pi_vals)
+                h_ao_2pi, = plt.plot(
+                    W_vals[good], F2_AO_2pi_vals[good],
+                    label="ANL-Osaka (full - 1π) contribution", color="blue", ls="dashed", lw=2
+                )
+                handles.append(h_ao_2pi)
+            else:
+                print("Unable to plot AO 2π contribution curve")
 
  
         
@@ -501,13 +550,189 @@ def compare_F2(Q2_list: list, what_to_show: list, pdf_set_lo: str, pdf_set_nlo: 
         plt.xlabel("W (GeV)")
         plt.ylabel(r"$F_2$")
         plt.title(f"Comparison of F2 structure functions at Q²={Q2} GeV² ")
-        plt.grid(True)
+
+        ax = plt.gca()
+        #ax.xaxis.set_major_locator(MultipleLocator(0.1))
+        #ax.yaxis.set_major_locator(MultipleLocator(0.01))
+        ax.grid(True, which="major")
+
         plt.legend(handles=handles, loc="upper left", fontsize="small")
 
         q2_str = str(Q2).rstrip("0").rstrip(".")
         out_path = f"{out_dir}/compare_F2_Q2={q2_str}_Wmax={W_cutoff}.pdf"
         plt.savefig(out_path, dpi=300)
         plt.close()
+        print("Saved →", out_path)
+
+
+
+
+def compare_W2(Q2_list: list,
+               what_to_show: list,
+               W_cutoff=2.5,
+               num_points=400,
+               ao_file_path="input_data/wempx.dat",
+               out_dir="compare_W2"):
+    """
+    Compare W2 structure function for:
+
+        - AO model
+        - strfun CLAS + World
+        - strfun CLAS only
+
+    AO W2 is taken directly from interpolate_structure_functions().
+    strfun W2 is obtained from F2 using:
+
+        W2 = F2 / nu
+
+    where:
+
+        nu = (W^2 - Mp^2 + Q2) / (2 Mp)
+
+    what_to_show options:
+        "AO_model"
+        "strfun_world"
+        "strfun_clas"
+    """
+
+    os.makedirs(out_dir, exist_ok=True)
+
+    for Q2 in Q2_list:
+
+        have_ao = False
+        have_strfun_world = False
+        have_strfun_clas = False
+
+        # ------------------------------------------------------------
+        # AO model W2
+        # ------------------------------------------------------------
+        W_vals = np.linspace(1.1, W_cutoff, num_points)
+        W2_AO_vals = np.full_like(W_vals, np.nan, dtype=float)
+
+        if "AO_model" in what_to_show:
+            for i, W in enumerate(W_vals):
+                try:
+                    _, W2_val = interpolate_structure_functions(
+                        file_path=ao_file_path,
+                        target_W=W,
+                        target_Q2=Q2
+                    )
+                    W2_AO_vals[i] = W2_val
+                except Exception:
+                    # outside grid or failed interpolation
+                    W2_AO_vals[i] = np.nan
+
+            have_ao = np.isfinite(W2_AO_vals).any()
+
+            if not have_ao:
+                print(f"No AO W2 data found for Q2={Q2}")
+
+        # ------------------------------------------------------------
+        # strfun CLAS + World
+        # ------------------------------------------------------------
+        if "strfun_world" in what_to_show:
+            try:
+                W_strfun_world, W2_strfun_world, W2err_strfun_world, have_strfun_world = strfun_F2_to_W2(
+                    fixed_Q2=Q2,
+                    data_type="clas_and_world",
+                    W_min=1.1,
+                    W_max=W_cutoff,
+                    base_dir="strfun_F1F2_data/vs_w"
+                )
+            except Exception as e:
+                have_strfun_world = False
+                print(f"No strfun CLAS + World W2 data found for Q2={Q2}: {e}")
+
+        # ------------------------------------------------------------
+        # strfun CLAS only
+        # ------------------------------------------------------------
+        if "strfun_clas" in what_to_show:
+            try:
+                W_strfun_clas, W2_strfun_clas, W2err_strfun_clas, have_strfun_clas = strfun_F2_to_W2(
+                    fixed_Q2=Q2,
+                    data_type="clas_only",
+                    W_min=1.1,
+                    W_max=W_cutoff,
+                    base_dir="strfun_F1F2_data/vs_w"
+                )
+            except Exception as e:
+                have_strfun_clas = False
+                print(f"No strfun CLAS-only W2 data found for Q2={Q2}: {e}")
+
+        # ------------------------------------------------------------
+        # Plot
+        # ------------------------------------------------------------
+        plt.figure(figsize=(8, 6))
+
+        handles = [
+            plt.Line2D([], [], color="white", label=f"Q² = {Q2:.3f} GeV²")
+        ]
+
+        if "AO_model" in what_to_show:
+            if have_ao:
+                good = np.isfinite(W2_AO_vals)
+
+                h_ao, = plt.plot(
+                    W_vals[good],
+                    W2_AO_vals[good],
+                    color="red",
+                    ls="solid",
+                    lw=2,
+                    label="ANL-Osaka model"
+                )
+                handles.append(h_ao)
+            else:
+                print(f"Unable to plot AO W2 for Q2={Q2}")
+
+        if "strfun_world" in what_to_show:
+            if have_strfun_world:
+                h_world = plt.errorbar(
+                    W_strfun_world,
+                    W2_strfun_world,
+                    yerr=W2err_strfun_world,
+                    fmt="o",
+                    color="black",
+                    markersize=2,
+                    capsize=2,
+                    label="strfun CLAS + World"
+                )
+                handles.append(h_world)
+            else:
+                print(f"Unable to plot strfun CLAS + World W2 for Q2={Q2}")
+
+        if "strfun_clas" in what_to_show:
+            if have_strfun_clas:
+                h_clas = plt.errorbar(
+                    W_strfun_clas,
+                    W2_strfun_clas,
+                    yerr=W2err_strfun_clas,
+                    fmt="o",
+                    color="purple",
+                    markersize=2,
+                    capsize=2,
+                    label="strfun CLAS only"
+                )
+                handles.append(h_clas)
+            else:
+                print(f"Unable to plot strfun CLAS-only W2 for Q2={Q2}")
+
+        plt.xlabel("W (GeV)")
+        plt.ylabel(r"$W_2$ (GeV$^{-1}$)")
+        plt.title(f"Comparison of W2 structure functions at Q²={Q2} GeV²")
+
+        ax = plt.gca()
+        ax.xaxis.set_major_locator(MultipleLocator(0.1))
+        ax.grid(True, which="major")
+
+        plt.legend(handles=handles, loc="upper left", fontsize="small")
+        plt.tight_layout()
+
+        q2_str = str(Q2).rstrip("0").rstrip(".")
+        out_path = f"{out_dir}/compare_W2_Q2={q2_str}_Wmax={W_cutoff}.pdf"
+
+        plt.savefig(out_path, dpi=300)
+        plt.close()
+
         print("Saved →", out_path)
 
 
@@ -554,7 +779,7 @@ def compare_xsecs( what_to_plot: list,
         have_AO_ext = False  # Do not plot Ext model for Q2 < 3 there is original model!
         if fixed_Q2 == 2.774:
             have_AO_ext = True  # Exception for 2.774 GeV^2 where we have both original and extended models -> show only extended
-            have_AO = False
+            have_AO = True # For now
     
     pdf_lo_xs = []
     pdf_nlo_xs, pdf_nlo_tmc_xs, pdf_nlo_tmc_ht_xs  = [], [], []
@@ -688,7 +913,7 @@ def compare_xsecs( what_to_plot: list,
                 delimiter=None,
                 skip_header=1
             )
-            m = (AO_ext["W"] >= W_lo) & (AO_ext["W"] <= W_hi)
+            m = (AO_ext["W"] >= W_lo) & (AO_ext["W"] <= 2.25) # changed the range to 2.0 (original W range)
             W_AO_ext = AO_ext["W"][m]
             sigma_AO_ext = AO_ext["sigma"][m]
             have_AO_ext = (W_AO_ext.size > 0)
@@ -745,6 +970,7 @@ def compare_xsecs( what_to_plot: list,
                label=f"Q² = {fixed_Q2:.3f} GeV², E = {beam_energy} GeV")]
     
     if "AO_original" in what_to_plot:
+        have_AO == True # For now!
         if have_AO:
             good_anl_full = np.isfinite(anl_full_xs) & (W_vals <= 2.0)
             h_model_full, = plt.plot(W_vals[good_anl_full], anl_full_xs[good_anl_full],
@@ -764,7 +990,7 @@ def compare_xsecs( what_to_plot: list,
             
     if "AO_1pi" in what_to_plot:
         if have_AO_1pi:
-            good_anl_1pi = np.isfinite(anl_onepi_xs)
+            good_anl_1pi = np.isfinite(anl_onepi_xs) & (W_vals <= 2.0)
             h_model_1pi, = plt.plot(W_vals[good_anl_1pi], anl_onepi_xs[good_anl_1pi], 
                                     label=r"ANL-Osaka model 1$\pi$ contribution", color="black", ls="dashed", lw=2)
             handles.append(h_model_1pi)
@@ -773,8 +999,8 @@ def compare_xsecs( what_to_plot: list,
             
     if "AO_2pi" in what_to_plot:
         if have_AO_2pi:
-            good_anl_2pi = np.isfinite(anl_two_pi_xs)
-            h_model_2pi, = plt.plot(W_vals[good_anl_2pi], anl_two_pi_xs[good_anl_2pi], label="(full - 1π) contribution", color="blue", ls="dashed", lw=2)
+            good_anl_2pi = np.isfinite(anl_two_pi_xs) & (W_vals <= 2.0)
+            h_model_2pi, = plt.plot(W_vals[good_anl_2pi], anl_two_pi_xs[good_anl_2pi], label="ANL-Osaka (full - 1π) contribution", color="blue", ls="dashed", lw=2)
             handles.append(h_model_2pi)
         else:
             print("Unable to plot ANL-Osaka (full - 1π) contribution")
@@ -1456,8 +1682,16 @@ def plot_F2_from_data_diff_R_sources(Q2_value, vs_what = "w"):
 
 
 
-def plot_M2_truncated_vs_Q2(pdf_set, error_mode="correlated", in_dir="../getF1F2/Output/truncated_moments", out_dir="Moment_vs_Q2"):
+def plot_M2_truncated_vs_Q2(pdf_set,
+                            error_mode="correlated",
+                            in_dir="../getF1F2/Output/truncated_moments",
+                            out_dir="Moment_vs_Q2",
+                            ao_original_file="input_data/wempx.dat",
+                            ao_q2_switch=2.774):
     in_path = os.path.join(in_dir, f"M2_{pdf_set}.txt")
+
+
+
     if not os.path.isfile(in_path):
         raise FileNotFoundError(f"Cannot find input file: {in_path}")
 
@@ -1471,7 +1705,6 @@ def plot_M2_truncated_vs_Q2(pdf_set, error_mode="correlated", in_dir="../getF1F2
         raise ValueError(f"Expected >= 13 columns in {in_path}, got {data.shape[1]}.")
 
     Q2 = data[:, 0].astype(float)
-    
 
     def _first_row_or_none(df):
         if df is None:
@@ -1489,7 +1722,7 @@ def plot_M2_truncated_vs_Q2(pdf_set, error_mode="correlated", in_dir="../getF1F2
             if row is None:
                 return np.nan, np.nan
 
-            m  = float(row["moment"])
+            m = float(row["moment"])
             de = float(row["error"])
 
             if not np.isfinite(m) or not np.isfinite(de):
@@ -1528,6 +1761,58 @@ def plot_M2_truncated_vs_Q2(pdf_set, error_mode="correlated", in_dir="../getF1F2
                 print(f"[skip] {func.__name__}{args}: {e}")
             return np.nan
 
+    def _safe_ao_moment(q2v, region, verbose=False):
+        """
+        AO logic:
+          - tail: always removed
+          - Q2 < ao_q2_switch:
+                use ORIGINAL AO for 1st, 2nd, 3rd, part
+                keep EXTENDED AO for all (because original AO is not defined for W > 2.0)
+          - Q2 >= ao_q2_switch:
+                keep current EXTENDED AO logic, except tail stays removed
+        """
+        r = str(region).lower().strip()
+
+        # Never show AO in tail
+        if r == "tail":
+            return np.nan
+
+        # Below switch: use original AO where it is actually defined
+        if q2v < ao_q2_switch:
+            if r in {"1st", "2nd", "3rd", "part"}:
+                return _safe_moment_only(
+                    calculate_moment_AO_original,
+                    q2v, r,
+                    n=2,
+                    file_path=ao_original_file,
+                    verbose=verbose
+                )
+            elif r == "all":
+                return _safe_moment_only(
+                    calculate_moment_AO_ext,
+                    q2v, r,
+                    n=2,
+                    E_beam=10.6,
+                    in_dir="tables_from_Yannick/fine_binning/AO",
+                    convert_ub_to_GeV2=True,
+                    divide_by_Gamma=True,
+                    verbose=verbose
+                )
+            else:
+                return np.nan
+
+        # Above switch: keep existing extended AO logic, except tail already removed
+        return _safe_moment_only(
+            calculate_moment_AO_ext,
+            q2v, r,
+            n=2,
+            E_beam=10.6,
+            in_dir="tables_from_Yannick/fine_binning/AO",
+            convert_ub_to_GeV2=True,
+            divide_by_Gamma=True,
+            verbose=verbose
+        )
+
     brady = {
         "1st":  data[:, 1],
         "2nd":  data[:, 2],
@@ -1545,7 +1830,6 @@ def plot_M2_truncated_vs_Q2(pdf_set, error_mode="correlated", in_dir="../getF1F2
         "part": data[:, 12]
     }
 
-    # Data
     regions = ["1st", "2nd", "3rd", "tail", "all", "part"]
 
     # Sort by Q2 just in case
@@ -1555,6 +1839,13 @@ def plot_M2_truncated_vs_Q2(pdf_set, error_mode="correlated", in_dir="../getF1F2
         brady[k] = brady[k][idx]
         naked[k] = naked[k][idx]
         
+    # to plot only from Q2 = 2.5 GeV as Dr Joo  asked
+    mask_q2 = Q2s >= 2.5
+    Q2s = Q2s[mask_q2]
+    for k in brady:
+        brady[k] = brady[k][mask_q2]
+        naked[k] = naked[k][mask_q2]
+
     # ---- experimental moments from data ----
     exp_m2 = {r: np.full_like(Q2s, np.nan, dtype=float) for r in regions}
     exp_e2 = {r: np.full_like(Q2s, np.nan, dtype=float) for r in regions}
@@ -1564,7 +1855,6 @@ def plot_M2_truncated_vs_Q2(pdf_set, error_mode="correlated", in_dir="../getF1F2
             try:
                 df = calc_trunc_moment_data(q2v, r, R_source="AO", n=2, error_mode=error_mode)
 
-                # skip if function returned nothing
                 if df is None or len(df) == 0:
                     continue
                 if hasattr(df, "empty") and df.empty:
@@ -1572,10 +1862,9 @@ def plot_M2_truncated_vs_Q2(pdf_set, error_mode="correlated", in_dir="../getF1F2
 
                 out = df.iloc[0]
 
-                m  = float(out["moment"])
+                m = float(out["moment"])
                 de = float(out["error"])
 
-                # skip fake empty result
                 if not np.isfinite(m) or not np.isfinite(de):
                     continue
                 if m == 0.0 and de == 0.0:
@@ -1585,8 +1874,8 @@ def plot_M2_truncated_vs_Q2(pdf_set, error_mode="correlated", in_dir="../getF1F2
                 exp_e2[r][i] = de
 
             except (FileNotFoundError, IndexError, KeyError):
-                # missing source / empty row / missing expected column -> skip this Q2
                 continue
+
     for r in regions:
         good = np.isfinite(exp_m2[r]) & np.isfinite(exp_e2[r])
         print(f"{r}: Q2 with data =", Q2s[good])
@@ -1596,19 +1885,12 @@ def plot_M2_truncated_vs_Q2(pdf_set, error_mode="correlated", in_dir="../getF1F2
 
     for i, q2v in enumerate(Q2s):
         for r in regions:
-            ao_m2[r][i] = _safe_moment_only(
-                calculate_moment_AO_model,
-                q2v, r,
-                n=2,
-                E_beam=10.6,
-                in_dir="tables_from_Yannick/fine_binning/AO",
-                convert_ub_to_GeV2=True,
-                divide_by_Gamma=True,
-                verbose=False
-            )
+            ao_m2[r][i] = _safe_ao_moment(q2v, r, verbose=False)
+
     for r in regions:
         good_ao = np.isfinite(ao_m2[r])
         print(f"AO {r}: Q2 with data =", Q2s[good_ao])
+
     # --------------------------- LO PDF moments ------------------------------
     lo_pdf_m2 = {r: np.full_like(Q2s, np.nan, dtype=float) for r in regions}
 
@@ -1620,7 +1902,7 @@ def plot_M2_truncated_vs_Q2(pdf_set, error_mode="correlated", in_dir="../getF1F2
                 verbose=False
             )
 
-    # -------------------- ###  Wmax info for title --------------------
+    # -------------------- Wmax info for title --------------------
     Q2_special = 9.699
     Wmax_default = 2.5
     Wmax_special = 2.25
@@ -1631,7 +1913,6 @@ def plot_M2_truncated_vs_Q2(pdf_set, error_mode="correlated", in_dir="../getF1F2
                         rf"(for $Q^2={Q2_special}$: $W_\max={Wmax_special}\,\mathrm{{GeV}}$)")
     else:
         title_suffix = rf"$W_\max={Wmax_default}\,\mathrm{{GeV}}$"
-    # ---------------------------------------------------------------------
 
     region_titles = {
         "1st":  r"1st resonance region $W \in [1.15, 1.35]$",
@@ -1644,6 +1925,7 @@ def plot_M2_truncated_vs_Q2(pdf_set, error_mode="correlated", in_dir="../getF1F2
 
     for region in ["1st", "2nd", "3rd", "tail", "part", "all"]:
         plt.figure()
+
         good_exp = np.isfinite(exp_m2[region]) & np.isfinite(exp_e2[region])
         if np.any(good_exp):
             plt.errorbar(
@@ -1657,36 +1939,68 @@ def plot_M2_truncated_vs_Q2(pdf_set, error_mode="correlated", in_dir="../getF1F2
                 capsize=2,
                 label=f"RGA data (V.Klimenko)\nR_LT from AO model\n{error_mode} error estimation"
             )
-         # -------------------------  AO model prediction ---------------------
+
+        # ------------------------- AO model prediction ---------------------
         good_ao = np.isfinite(ao_m2[region])
         if np.any(good_ao):
-            plt.plot(Q2s[good_ao], ao_m2[region][good_ao], color="red",marker="o", linestyle="-", markersize=3, label="ANL-Osaka model full")
-            
-            # -------------------------  LO PDF prediction -----------------------
-        #good_lo = np.isfinite(lo_pdf_m2[region])
-        #if np.any(good_lo):
-        #    plt.plot(Q2s[good_lo], lo_pdf_m2[region][good_lo], color="orange",marker="d", linestyle="-", markersize=3, label="CJ15lo: LO+LT")
-        #
-        #--------------------NLO PDF-based  prediction--------------------
+            if region in ["1st", "2nd", "3rd", "part"]:
+                ao_label = f"ANL-Osaka model: \n original for $Q^2<{ao_q2_switch}$, extended otherwise"
+            else:
+                ao_label = "ANL-Osaka model extended"
 
+            plt.plot(
+                Q2s[good_ao],
+                ao_m2[region][good_ao],
+                color="red",
+                marker="o",
+                linestyle="-",
+                markersize=3,
+                label=ao_label
+            )
+
+        # ------------------------- LO PDF prediction -----------------------
+        # good_lo = np.isfinite(lo_pdf_m2[region])
+        # if np.any(good_lo):
+        #     plt.plot(Q2s[good_lo], lo_pdf_m2[region][good_lo],
+        #              color="orange", marker="d", linestyle="-",
+        #              markersize=3, label="CJ15lo: LO+LT")
+
+        # -------------------- NLO PDF-based prediction --------------------
         good_naked = np.isfinite(naked[region])
         if np.any(good_naked):
-            plt.plot(Q2s[good_naked], naked[region][good_naked],
-                     marker="^", markersize=3, linestyle="-",
-                     color="blue", label="CJ15nlo: NLO+LT")
+            plt.plot(
+                Q2s[good_naked],
+                naked[region][good_naked],
+                marker="^",
+                markersize=3,
+                linestyle="-",
+                color="blue",
+                label="CJ15nlo: NLO+LT"
+            )
 
         good_brady = np.isfinite(brady[region])
         if np.any(good_brady):
-            plt.plot(Q2s[good_brady], brady[region][good_brady],
-                     marker="s", markersize=3, linestyle="-",
-                     color="orange", label="CJ15nlo: NLO+LT+TMC+HT")
+            plt.plot(
+                Q2s[good_brady],
+                brady[region][good_brady],
+                marker="s",
+                markersize=3,
+                linestyle="-",
+                color="orange",
+                label="CJ15nlo: NLO+LT+TMC+HT"
+            )
 
         plt.xlabel(r"$Q^2\ \mathrm{[GeV^2]}$")
+        ax = plt.gca()
+        ax.xaxis.set_major_locator(MultipleLocator(0.5))   # major ticks every 0.5 in Q2
+        ax.xaxis.set_minor_locator(MultipleLocator(0.25))  # minor ticks every 0.25
         plt.ylabel(r"$M_2$ (truncated)")
+
         if region in ["all", "tail"]:
             plt.title(f"{region_titles[region]}\n{title_suffix}")
         else:
             plt.title(f"{region_titles[region]}")
+
         plt.grid(True, which="both", alpha=0.3)
         plt.legend()
 
@@ -1694,8 +2008,7 @@ def plot_M2_truncated_vs_Q2(pdf_set, error_mode="correlated", in_dir="../getF1F2
         plt.tight_layout()
         plt.savefig(out_path, dpi=200)
         plt.close()
-        
-    
+
     print(f"Saved to: {out_dir}")
     
     
@@ -1793,13 +2106,13 @@ def plot_bin_size_ratio_vs_Q2(out_dir="Bin_size_ratio_plots",
 #-----------------------------------------------------------------------------------------------------------
 #plot_bin_size_ratio_vs_Q2()
     
-#for Q2 in [2.774, 3.793, 6.065, 9.699]:
+#for Q2 in [9.699]:
 #    compare_xsecs(
 #        [
 #         "data_rga",
 #         #"AO_original",
-#         "AO_ext",
-#         #"AO_1pi", 
+#        "AO_ext",
+#        #"AO_1pi", 
 #         #"AO_2pi",
 #         "NLO_TMC_HT", 
 #         "NLO_LT", 
@@ -1814,7 +2127,7 @@ def plot_bin_size_ratio_vs_Q2(out_dir="Bin_size_ratio_plots",
 #        beam_energy=10.6,
 #        pdf_set_lo="CJ15lo",
 #        pdf_set_nlo="CJ15nlo",
-#        W_cutoff=3.0,
+#        W_cutoff=2.75,
 #        patrick_series=["thy"]
 #    )
 
@@ -1830,17 +2143,24 @@ def plot_bin_size_ratio_vs_Q2(out_dir="Bin_size_ratio_plots",
 
 
 #plot_M2_truncated_vs_Q2(pdf_set="CJ15nlo", error_mode="point_uncorrelated")
-plot_M2_truncated_vs_Q2(pdf_set="CJ15nlo", error_mode="correlated")
+#plot_M2_truncated_vs_Q2(pdf_set="CJ15nlo", error_mode="correlated")
 #plot_M2_truncated_vs_Q2(pdf_set="CJ15nlo", error_mode="segment_uncorrelated")
 
 
     
-#compare_F2([2.774, 3.793, 6.065, 9.699], ["rga_data","AO_model_ext","NLO_TMC_HT", "NLO_LT"], pdf_set_lo="CJ15lo", pdf_set_nlo="CJ15nlo", W_cutoff=3.0)
+#compare_W2(
+#    Q2_list=[1.0, 2.0, 3.0],
+#    what_to_show=[
+#        "AO_model",
+#        #"strfun_world",
+#        "strfun_clas"
+#    ],
+#    W_cutoff=2.0,
+#    num_points=400
+#)
 
 
-#for Q2 in [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
-    #compare_xsecs(fixed_Q2=Q2, beam_energy=10.6, pdf_set_lo="CJ15lo", pdf_set_nlo="CJ15nlo", W_cutoff=2.0)    
-
+compare_F2(Q2_list = [2.774], what_to_show = ["AO_model", "rga_data", "AO_model_1pi", "NLO_TMC_HT"], pdf_set_lo = "CJ15lo", pdf_set_nlo="CJ15nlo", W_cutoff= 2.0 )
 
 
 

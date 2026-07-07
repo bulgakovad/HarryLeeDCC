@@ -18,7 +18,125 @@ M = 0.9382720813
 alpha = 1/137.035999084
 four_pi2_alpha = 4.0*np.pi**2*alpha
 
+
+
+
+def nu_from_WQ2(W, Q2):
+    """
+    Energy transfer:
+        nu = (W^2 - M^2 + Q2) / (2M)
+    """
+    W = np.asarray(W, dtype=float)
+    Q2 = np.asarray(Q2, dtype=float)
+    return (W**2 - M**2 + Q2) / (2.0 * M)
+
+
+def strfun_F2_to_W2(fixed_Q2,
+                    data_type="clas_and_world",
+                    W_min=1.1,
+                    W_max=2.5,
+                    base_dir="strfun_F1F2_data/vs_w"):
+    """
+    Reads strfun F2(W,Q2) data and converts it to W2 using:
+
+        F2 = nu * W2
+        W2 = F2 / nu
+
+    Parameters
+    ----------
+    fixed_Q2 : float
+        Q2 value to read.
+    data_type : str
+        Either:
+            "clas_and_world"
+            "clas_only"
+    W_min, W_max : float
+        W range.
+    base_dir : str
+        Base strfun directory.
+
+    Returns
+    -------
+    W_vals, W2_vals, W2_err_vals, have_data
+    """
+
+    if data_type == "clas_and_world":
+        folder = "clas_and_world_data"
+    elif data_type == "clas_only":
+        folder = "clas_only_data"
+    else:
+        raise ValueError("data_type must be 'clas_and_world' or 'clas_only'")
+
+    file_path = f"{base_dir}/{folder}/F2_vs_w_Q2={fixed_Q2}.dat"
+
+    if not os.path.isfile(file_path):
+        return None, None, None, False
+
+    data = np.genfromtxt(
+        file_path,
+        names=["W", "F2", "F2_err"],
+        delimiter="\t",
+        skip_header=1
+    )
+
+    W = np.asarray(data["W"], dtype=float)
+    F2 = np.asarray(data["F2"], dtype=float)
+    F2_err = np.asarray(data["F2_err"], dtype=float)
+
+    m = (
+        np.isfinite(W)
+        & np.isfinite(F2)
+        & np.isfinite(F2_err)
+        & (W >= W_min)
+        & (W <= W_max)
+    )
+
+    W = W[m]
+    F2 = F2[m]
+    F2_err = F2_err[m]
+
+    if W.size == 0:
+        return None, None, None, False
+
+    nu = nu_from_WQ2(W, fixed_Q2)
+
+    W2 = F2 / nu
+    W2_err = F2_err / nu
+
+    return W, W2, W2_err, True
+
 def x_of_W(W,Q2): return Q2 / (W*W - M*M + Q2)
+
+def read_stas_data(
+    fixed_Q2,
+    channel="pi+ n + pi0 p",
+    W_min=1.1,
+    W_max=2.5,
+    csv_path="from_Stas/F2_interpolated.csv",
+    q2_tol=1e-12,
+):
+    df = pd.read_csv(csv_path)
+
+    # Match the Q2 bin that contains fixed_Q2
+    mask = (
+        (df["channel"] == channel) &
+        (df["q2_min"] <= fixed_Q2 + q2_tol) &
+        (df["q2_max"] >= fixed_Q2 - q2_tol) &
+        (df["w"] >= W_min) &
+        (df["w"] <= W_max)
+    )
+
+    out = df.loc[mask, ["w", "F_2", "F_2_err"]].sort_values("w").copy()
+
+    if out.empty:
+        return np.array([]), np.array([]), np.array([]), False
+
+    return (
+        out["w"].to_numpy(),
+        out["F_2"].to_numpy(),
+        out["F_2_err"].to_numpy(),
+        True,
+    )
 
 
 def F2_from_xsect_data(Q2_value, R_source):

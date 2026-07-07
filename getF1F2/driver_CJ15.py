@@ -129,7 +129,7 @@ def mainF2trunc(pdf_set):
   os.makedirs(out_dir, exist_ok=True)
   f2 = open(f"{out_dir}/M2_{my_pdf_set}.txt","w")
   
-  for Q2 in [1.75, 2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
+  for Q2 in [1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699]:
     print(f"Running for Q2 = {Q2}\n")
    # --- region -> W bounds ---
     W_min_data = 1.15

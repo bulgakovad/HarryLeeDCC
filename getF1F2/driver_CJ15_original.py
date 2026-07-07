@@ -16,7 +16,7 @@ h2p = -2.0701
 def mainF2F1():
   f2 = open("Output_original/F2_fixQ2_cj15.txt","w")
   f1 = open("Output_original/F1_fixQ2_cj15.txt","w")
-#  fl = open("Output_original/FL_fixQ2_cj15.txt","w")
+  fl = open("Output_original/FL_fixQ2_cj15.txt","w")
   for j in range(1,5):
     Q2 = j+0.025
     for i in range(0,74):
@@ -222,8 +222,8 @@ def mainTMC():
 
 if __name__== "__main__":
 #    mainTMC()
-    mainF2trunc()
-#    mainF2F1()
+    #mainF2trunc()
+    mainF2F1()
     #mainFLQ2()
 #    mainFLW()
 
