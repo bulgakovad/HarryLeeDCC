@@ -39,7 +39,7 @@ def plot_pdf_of_x(pdf_set,sum_or_sep, Q2_list):
     linear_x  = False              # False -> log x axis; True -> linear
 
     # What to plot
-    times_x   = True              # True: plot x*(q+qbar); False: (q+qbar)
+    times_x   = False              # True: plot x*(q+qbar); False: (q+qbar)
 
     # Output
     outdir    = f"Output/PDF_curves_{pdf_set}_{sum_or_sep}"
@@ -87,6 +87,26 @@ def plot_pdf_of_x(pdf_set,sum_or_sep, Q2_list):
             s_bar = np.array([q_separate(pdf, -3, x, Q2, times_x=times_x) for x in xgrid])
             c_bar = np.array([q_separate(pdf, -4, x, Q2, times_x=times_x) for x in xgrid])
 
+            # Save table with actual PDFs, not x*PDFs:
+            # columns: x, u(x), d(x), ubar(x), dbar(x)
+            u_table = np.array([q_separate(pdf, +2, x, Q2, times_x=False) for x in xgrid])
+            d_table = np.array([q_separate(pdf, +1, x, Q2, times_x=False) for x in xgrid])
+            ubar_table = np.array([q_separate(pdf, -2, x, Q2, times_x=False) for x in xgrid])
+            dbar_table = np.array([q_separate(pdf, -1, x, Q2, times_x=False) for x in xgrid])
+
+            q2_name = str(Q2).replace(".", "p")
+            table_name = f"{pdf_set}_u_d_ubar_dbar_Q2={q2_name}.dat"
+            table_path = os.path.join(outdir, table_name)
+
+            np.savetxt(
+                table_path,
+                np.column_stack((xgrid, u_table, d_table, ubar_table, dbar_table)),
+                header="x  u(x)  d(x)  ubar(x)  dbar(x)",
+                fmt="%.10e"
+            )
+
+            print(f"Saved table: {table_path}")
+
         fig, ax = plt.subplots(figsize=(8.0, 5.2))
         if sum_or_sep == "sum":
             # New figure per Q2
@@ -99,12 +119,12 @@ def plot_pdf_of_x(pdf_set,sum_or_sep, Q2_list):
             # New figure per Q2
             ax.plot(xgrid, u, label="u")
             ax.plot(xgrid, d, label="d")
-            ax.plot(xgrid, s, label="s")
-            ax.plot(xgrid, c, label="c")
+            #ax.plot(xgrid, s, label="s")
+            #ax.plot(xgrid, c, label="c")
             ax.plot(xgrid, u_bar, linestyle="--", label="ū")
             ax.plot(xgrid, d_bar, linestyle="--", label="d̄")
-            ax.plot(xgrid, s_bar, linestyle="--", label="s̄")
-            ax.plot(xgrid, c_bar, linestyle="--", label="c̄")
+            #ax.plot(xgrid, s_bar, linestyle="--", label="s̄")
+            #ax.plot(xgrid, c_bar, linestyle="--", label="c̄")
             #ax.plot(xgrid, g_arr, linestyle=":", label="g")   # <-- NEW
 
         ax.set_xscale("linear" if linear_x else "log")
@@ -122,12 +142,12 @@ def plot_pdf_of_x(pdf_set,sum_or_sep, Q2_list):
         print(f"Saved: {save_path}")
 
 
-plot_pdf_of_x("CT18NLO", "sum", [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699])
-plot_pdf_of_x("CJ15nlo", "sum", [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699])
-plot_pdf_of_x("CT18LO" , "sum", [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699])
-plot_pdf_of_x("CJ15lo" , "sum", [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699])
+#plot_pdf_of_x("CT18NLO", "sum", [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699])
+#plot_pdf_of_x("CJ15nlo", "sum", [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699])
+#plot_pdf_of_x("CT18LO" , "sum", [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699])
+#plot_pdf_of_x("CJ15lo" , "sum", [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699])
 
-plot_pdf_of_x("CT18NLO", "separate", [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699])
-plot_pdf_of_x("CJ15nlo", "separate", [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699])
-plot_pdf_of_x("CT18LO" , "separate", [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699])
-plot_pdf_of_x("CJ15lo" , "separate", [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699])
+#plot_pdf_of_x("CT18NLO", "separate", [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699])
+plot_pdf_of_x("CJ15nlo", "separate", [4,6,8,10])
+#plot_pdf_of_x("CT18LO" , "separate", [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699])
+#plot_pdf_of_x("CJ15lo" , "separate", [2.774, 3.244, 3.793, 4.435, 5.187, 6.065, 7.093, 8.294, 9.699])

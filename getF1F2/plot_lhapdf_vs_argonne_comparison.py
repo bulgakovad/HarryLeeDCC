@@ -33,8 +33,8 @@ ARGONNE_PZ_GEV = 3.04
 
 ARGONNE_DATA_DIR = "../unpol_PDF_for_harry/data"
 
-OUTPUT_DIR = "Output/CJ15_Argonne_isovector"
-OUTPUT_NAME = "CJ15nlo_Argonne_signed_isovector_Q2_4.png"
+OUTPUT_DIR = "Output/LHAPDF_vs_Argonne_isovector_comparison"
+OUTPUT_NAME = f"{PDF_SET}_Argonne_signed_isovector_Q2_4.png"
 
 # LHAPDF evaluation range.
 XMIN = 1.0e-3
